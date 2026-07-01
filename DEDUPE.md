@@ -47,7 +47,6 @@ EMBEDDING_MODEL=BAAI/bge-m3
 
 - `BAAI/bge-m3`
 - `Qwen/Qwen3-Embedding-0.6B`
-- `Qwen/Qwen3-VL-Embedding-2B`
 
 Меняешь только `EMBEDDING_MODEL` — как `LLM_MODEL` для chat.
 
@@ -151,11 +150,8 @@ dedupe/
 
 ## FAQ
 
-**Чем `EMBEDDING_MODEL` отличается от `LLM_MODEL`?**  
-`LLM_MODEL` — chat для scoring/ranking. `EMBEDDING_MODEL` — векторы для dedupe. Один API-ключ.
 
 **Dedupe не сработал?**  
 Смотри лог: `Semantic dedupe пропущен: ...` — нет ключа или `EMBEDDING_MODEL`.
 
-**Нужен интернет?**  
-Да, embeddings всегда через Cloud.ru API.
+
