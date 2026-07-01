@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+
+# Generated at runtime — do not commit
+cache/
+logs/
+
+# output/: keep Excel exports, ignore other runtime files
+output/*
+!output/*.xlsx
+
+# Excel / local dumps outside output/
+*.xlsx
+!output/*.xlsx
+*.csv
+/*.json
+
+# Local embedding model (optional dedupe tooling)
+bge-m3/
+
+# Export configs in export/ are tracked (export/default.json)
+!export/
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+Desktop.ini
+
+# Playwright browsers
+.ms-playwright/
