@@ -82,8 +82,9 @@ python main.py --enrich
 
 После сборки Excel можно прогнать двухэтапную LLM-постобработку:
 
-1. **Первый проход** — по каждой новости: `llm_summary`, `llm_score`, отбор кандидатов (`llm_score >= 70`, максимум 30 кандидатов на ЦК).
-2. **Второй проход** — ранжирование кандидатов, топ-10 + резерв, колонки `top_rank` и `is_top_news`.
+1. **Первый проход** — по каждой новости: `llm_summary`, `llm_score`, отбор кандидатов (`llm_score >= 60`, максимум 30 кандидатов на ЦК).
+2. **Semantic dedupe** — удаление дублей среди всех строк каждого ЦК (оставляется max `llm_score`).
+3. **Второй проход** — ранжирование кандидатов, топ-10 + резерв, колонки `top_rank` и `is_top_news`.
 
 Промпты для каждого ЦК: `llm/ranking_prompts/`.
 
@@ -183,6 +184,7 @@ config/sources/            конфиги источников
 filters/ck/                правила ЦК
 export/                    Excel, enricher, audit_ranker
 llm/                       клиент LLM, audit ranking, промпты
+dedupe/                    опциональная semantic dedupe — см. [DEDUPE.md](DEDUPE.md)
 mailer.py                  отправка Excel по почте
 cache/                     кэш парсинга
 output/                    Excel-выгрузки

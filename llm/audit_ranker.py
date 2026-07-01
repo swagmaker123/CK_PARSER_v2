@@ -117,7 +117,7 @@ def score_news_by_ck(final_df, ck_filter=None):
             result = call_llm_json(prompt)
 
             score = _clean_score(result.get("score", 0))
-            is_candidate = _as_bool(result.get("is_candidate", score >= 70))
+            is_candidate = _as_bool(result.get("is_candidate", score >= 60))
             topic = str(result.get("topic", "not_relevant") or "not_relevant")
             summary = str(
                 result.get("summary") or result.get("short_summary") or ""
@@ -246,6 +246,15 @@ def rank_top_by_ck(final_df, top_n=10, reserve_n=5, ck_filter=None):
 
 def audit_rank_news(final_df, top_n=10, reserve_n=5, ck_filter=None):
     scored = score_news_by_ck(final_df, ck_filter=ck_filter)
+
+    from dedupe.semantic import dedupe_scored_rows_by_ck
+
+    scored = dedupe_scored_rows_by_ck(
+        scored,
+        ck_filter=ck_filter,
+        normalize_ck_filter_fn=_normalize_ck_filter,
+    )
+
     return rank_top_by_ck(
         scored,
         top_n=top_n,
