@@ -18,13 +18,14 @@
 | `cbr` | Центробанк |
 | `garant` | Гарант.ру |
 | `interfax` | Interfax |
+| `kommersant` | Kommersant |
 | `minfin` | МинФин |
 | `nalog` | ФНС |
 | `palata` | Палата НК |
 | `rbc` | РБК |
 | `consultant` | Consultant |
 
-Парсер Kommersant есть в `parsers/kommersant/`, но в текущем CLI не подключён к `--source`.
+Kommersant использует Playwright (Chromium) — нужен `playwright install chromium`.
 
 ## Установка
 
@@ -36,6 +37,8 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 playwright install chromium
 ```
+
+Для Kommersant обязателен Chromium из Playwright (см. выше).
 
 Для LLM-постобработки нужен ключ API (см. раздел ниже).
 
@@ -62,7 +65,7 @@ python main.py --enrich
 
 | Аргумент | Описание |
 |---|---|
-| `--source` | Один источник: `banki`, `cbr`, `garant`, `interfax`, `minfin`, `nalog`, `palata`, `rbc`, `consultant` |
+| `--source` | Один источник: `banki`, `cbr`, `garant`, `interfax`, `kommersant`, `minfin`, `nalog`, `palata`, `rbc`, `consultant` |
 | `--ck` | ID профиля ЦК (`payment_systems`, `ssem`, `taxes`) или `all` (по умолчанию) |
 | `--days` | Окно парсинга в днях (по умолчанию 30) |
 | `--refresh-days` | Сколько последних дней не брать из кэша, а скачать заново (мин. 2) |

@@ -39,10 +39,25 @@ PARSERS = {
     "palata": PalataParser,
     "rbc": RbcParser,
     "consultant": ConsultantParser,
-    # "kommersant" загружается лениво (требует playwright)
 }
 
-SOURCE_ORDER = ("banki", "cbr", "garant", "interfax", "minfin", "nalog", "palata", "rbc", "consultant")
+# Playwright подтягивается только при запуске kommersant
+LAZY_PARSERS = ("kommersant",)
+
+SOURCE_ORDER = (
+    "banki",
+    "cbr",
+    "garant",
+    "interfax",
+    "kommersant",
+    "minfin",
+    "nalog",
+    "palata",
+    "rbc",
+    "consultant",
+)
+
+SOURCE_CHOICES = sorted(set(PARSERS) | set(LAZY_PARSERS))
 
 
 def discover_ck_profiles():
@@ -89,6 +104,7 @@ def main():
             "Примеры:\n"
             "  python main.py                       # все источники по всем ЦК\n"
             "  python main.py --source interfax     # только Interfax\n"
+            "  python main.py --source kommersant   # Kommersant (Playwright)\n"
             "  python main.py --source consultant   # Consultant\n"
             "  python main.py --days 30             # все источники за 30 дней\n"
             "  python main.py --export-only         # Excel из кэша, без загрузки\n"
@@ -99,7 +115,7 @@ def main():
     )
     parser.add_argument(
         "--source",
-        choices=sorted(PARSERS),
+        choices=SOURCE_CHOICES,
         default=None,
         help="Один источник. Если не указан, запускаются все источники",
     )
