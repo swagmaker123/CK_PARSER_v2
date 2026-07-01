@@ -15,11 +15,11 @@ LLM audit ranking работает в три этапа:
    - Во второй этап проходят только новости с `llm_score >= 60`.
 
 2. Semantic dedupe (опционально, между 1-м и 2-м проходом).
-   - Берёт **все строки** каждого ЦК после первого прохода (без фильтра по score).
-   - Сравнивает их по эмбеддингам `bge-m3` (`Заголовок статьи` + `llm_summary`).
+   - Берёт **все строки** каждого ЦК после первого прохода.
+   - Embeddings через Cloud.ru (`EMBEDDING_MODEL` + `FOUNDATION_MODELS_API_KEY`).
    - Семантические дубли **удаляются из Excel** как строки.
    - В группе дублей остаётся новость с **максимальным `llm_score`**.
-   - Если модели `./bge-m3` или `sentence-transformers` нет — этап пропускается.
+   - Если не заданы `EMBEDDING_MODEL` или API-ключ — этап пропускается.
    - Подробнее: [DEDUPE.md](DEDUPE.md).
 
 3. Второй проход берёт только оставшихся кандидатов по каждому ЦК.
@@ -176,7 +176,6 @@ LLM_TEXT_TRUNCATE=8000
 
 ```text
 EMBEDDING_MODEL=BAAI/bge-m3
-DEDUPE_BACKEND=cloud
 DEDUPE_SIMILARITY_THRESHOLD=0.88
 ```
 

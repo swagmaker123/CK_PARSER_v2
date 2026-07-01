@@ -1,0 +1,18 @@
+{
+  "days": {
+    "2026-07-01": {
+      "date": "2026-07-01",
+      "processed_at": "2026-07-01T14:25:31",
+      "status": "processed",
+      "links_found": 80,
+      "items": []
+    },
+    "2026-06-30": {
+      "date": "2026-06-30",
+      "processed_at": "2026-07-01T14:27:49",
+      "status": "processed",
+      "links_found": 200,
+      "items": []
+    }
+  }
+}

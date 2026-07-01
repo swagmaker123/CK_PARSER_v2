@@ -1,3 +1,9 @@
+"""
+Семантическая дедупликация между 1-м и 2-м этапом LLM enrich.
+
+Embeddings только через Cloud.ru Foundation Models.
+"""
+
 from dedupe.embeddings import (
     describe_unavailable_reason,
     get_embedding_backend,

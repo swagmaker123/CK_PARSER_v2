@@ -28,9 +28,6 @@ output/*
 *.csv
 /*.json
 
-# Local embedding model (optional dedupe tooling)
-bge-m3/
-
 # Export configs in export/ are tracked (export/default.json)
 !export/
 

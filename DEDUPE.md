@@ -2,7 +2,7 @@
 
 Семантическая дедупликация между **1-м** и **2-м** этапом LLM enrich.
 
-Запускается автоматически при `--enrich` / `--enrich-only`. Отдельной команды нет.
+Запускается автоматически при `--enrich` / `--enrich-only`.
 
 ```text
 1. LLM scoring   → llm_summary, llm_score
@@ -14,26 +14,24 @@
 
 ## Что нужно подключить
 
-Dedupe использует **embedding-модель** — так же, как enrich использует **LLM-модель**.
+Embeddings идут **только через Cloud.ru Foundation Models** — так же, как LLM.
 
-Два варианта:
+Нужно два параметра в `~/.openclaw/.env`:
 
-| Вариант | Что нужно | Интернет |
-|---|---|---|
-| **Cloud.ru** | `EMBEDDING_MODEL` + `FOUNDATION_MODELS_API_KEY` | да |
-| **Local** | папка `EMBEDDING_MODEL_PATH` + `sentence-transformers` | нет |
+```text
+FOUNDATION_MODELS_API_KEY=ваш_ключ
+EMBEDDING_MODEL=BAAI/bge-m3
+```
 
-Если ничего не настроено — dedupe **пропускается**, enrich работает дальше.
+Без них dedupe **пропускается**, enrich работает дальше.
 
 ---
 
-## Вариант 1: Cloud.ru (как LLM)
-
-Подходит, если LLM уже ходит в Cloud.ru Foundation Models.
+## Настройка
 
 ### Шаг 1. API-ключ
 
-Тот же ключ, что для LLM — в `~/.openclaw/.env`:
+Тот же ключ, что для LLM:
 
 ```text
 FOUNDATION_MODELS_API_KEY=ваш_ключ
@@ -49,92 +47,25 @@ EMBEDDING_MODEL=BAAI/bge-m3
 
 - `BAAI/bge-m3`
 - `Qwen/Qwen3-Embedding-0.6B`
+- `Qwen/Qwen3-VL-Embedding-2B`
 
-### Шаг 3. Backend
+Меняешь только `EMBEDDING_MODEL` — как `LLM_MODEL` для chat.
 
-```text
-DEDUPE_BACKEND=cloud
-```
-
-### Полный пример `.env` (cloud)
+### Полный пример `.env`
 
 ```text
-# LLM (уже должно быть)
+# LLM
 FOUNDATION_MODELS_API_KEY=ваш_ключ
 LLM_MODEL=ai-sage/GigaChat3-10B-A1.8B
 
 # Embeddings для dedupe
 EMBEDDING_MODEL=BAAI/bge-m3
 EMBEDDING_API_URL=https://foundation-models.api.cloud.ru/v1/embeddings
-DEDUPE_BACKEND=cloud
+
+# Dedupe
 DEDUPE_ENABLED=true
 DEDUPE_SIMILARITY_THRESHOLD=0.88
 ```
-
-### Запуск
-
-```powershell
-python main.py --enrich-only --ck payment_systems
-```
-
-В логе:
-
-```text
-Semantic dedupe: cloud embeddings, model=BAAI/bge-m3
-```
-
----
-
-## Вариант 2: Local (офлайн)
-
-### Шаг 1. Зависимости
-
-```powershell
-pip install sentence-transformers numpy torch
-```
-
-### Шаг 2. Скачать модель
-
-Положить в `./bge-m3/` (или другой путь):
-
-```text
-CK_PARSER/
-  bge-m3/          ← сюда файлы модели BAAI/bge-m3
-```
-
-Папка в `.gitignore`, в git не коммитится.
-
-### Шаг 3. Путь и backend
-
-```text
-EMBEDDING_MODEL_PATH=./bge-m3
-EMBEDDING_DEVICE=cpu
-DEDUPE_BACKEND=local
-```
-
-### Полный пример `.env` (local)
-
-```text
-DEDUPE_ENABLED=true
-DEDUPE_BACKEND=local
-EMBEDDING_MODEL_PATH=./bge-m3
-EMBEDDING_DEVICE=cpu
-DEDUPE_SIMILARITY_THRESHOLD=0.88
-```
-
----
-
-## Вариант 3: Auto (по умолчанию)
-
-```text
-DEDUPE_BACKEND=auto
-```
-
-Логика:
-
-1. Если задан `EMBEDDING_MODEL` и есть `FOUNDATION_MODELS_API_KEY` → **cloud**
-2. Иначе если есть папка `EMBEDDING_MODEL_PATH` и установлен `sentence-transformers` → **local**
-3. Иначе dedupe пропускается
 
 ---
 
@@ -144,36 +75,31 @@ DEDUPE_BACKEND=auto
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
-| `EMBEDDING_MODEL` | *(пусто)* | Имя модели в Cloud.ru (для cloud) |
+| `EMBEDDING_MODEL` | *(пусто)* | Имя embedding-модели в Cloud.ru |
 | `EMBEDDING_API_URL` | `https://foundation-models.api.cloud.ru/v1/embeddings` | URL embeddings API |
-| `EMBEDDING_MODEL_PATH` | `./bge-m3` | Путь к локальной модели |
-| `EMBEDDING_DEVICE` | `cpu` | `cpu` или `cuda` (только local) |
 | `EMBEDDING_BATCH_SIZE` | `32` | Размер батча запросов |
 | `EMBEDDING_TIMEOUT` | `120` | Таймаут HTTP, сек |
-| `FOUNDATION_MODELS_API_KEY` | — | API-ключ Cloud.ru (общий с LLM) |
+| `FOUNDATION_MODELS_API_KEY` | — | API-ключ (общий с LLM) |
 
 ### Dedupe
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
 | `DEDUPE_ENABLED` | `true` | `false` — отключить dedupe |
-| `DEDUPE_BACKEND` | `auto` | `cloud`, `local` или `auto` |
 | `DEDUPE_SIMILARITY_THRESHOLD` | `0.88` | Порог cosine similarity |
-| `DEDUPE_FULL_TEXT_FALLBACK_CHARS` | `1000` | Fallback из полного текста |
+| `DEDUPE_FULL_TEXT_FALLBACK_CHARS` | `1000` | Fallback из полного текста, если нет summary |
 
 Дефолты в коде: `dedupe/config.py`.
 
 ---
 
-## Как работает dedupe
+## Как работает
 
 1. Берёт **все строки** каждого ЦК после 1-го LLM-прохода.
 2. Строит текст: `Заголовок` + `llm_summary`.
-3. Получает эмбеддинги через выбранный backend.
+3. Отправляет в Cloud.ru embeddings API.
 4. Склеивает дубли (similarity ≥ порога) внутри ЦК.
 5. **Удаляет** лишние строки, оставляет одну с **max `llm_score`**.
-
-Порог score / `is_candidate` на dedupe **не влияет**.
 
 ### Порог similarity
 
@@ -182,6 +108,23 @@ DEDUPE_BACKEND=auto
 | `0.92+` | Жёстко, только явные дубли |
 | `0.88` | По умолчанию |
 | `0.85` | Мягче, больше склеек |
+
+---
+
+## Запуск
+
+```powershell
+python main.py --enrich-only --ck payment_systems
+python main.py --enrich
+```
+
+В логе:
+
+```text
+Semantic dedupe: cloud embeddings, model=BAAI/bge-m3
+ЦК payment_systems: semantic dedupe удалит 3 строк из 47
+Semantic dedupe завершён: удалено строк=3
+```
 
 ---
 
@@ -198,7 +141,7 @@ DEDUPE_ENABLED=false
 ```text
 dedupe/
   config.py       — env-настройки
-  embeddings.py   — cloud / local backend
+  embeddings.py   — Cloud.ru embeddings API
   semantic.py     — поиск и удаление дублей
 ```
 
@@ -208,6 +151,11 @@ dedupe/
 
 ## FAQ
 
+**Чем `EMBEDDING_MODEL` отличается от `LLM_MODEL`?**  
+`LLM_MODEL` — chat для scoring/ranking. `EMBEDDING_MODEL` — векторы для dedupe. Один API-ключ.
 
-**Dedupe не сработал — почему?**  
-Смотри лог: `Semantic dedupe пропущен: ...` — там причина (нет ключа, модели, зависимостей).
+**Dedupe не сработал?**  
+Смотри лог: `Semantic dedupe пропущен: ...` — нет ключа или `EMBEDDING_MODEL`.
+
+**Нужен интернет?**  
+Да, embeddings всегда через Cloud.ru API.

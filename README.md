@@ -184,7 +184,7 @@ config/sources/            конфиги источников
 filters/ck/                правила ЦК
 export/                    Excel, enricher, audit_ranker
 llm/                       клиент LLM, audit ranking, промпты
-dedupe/                    опциональная semantic dedupe — см. [DEDUPE.md](DEDUPE.md)
+dedupe/                    semantic dedupe через Cloud.ru — см. [DEDUPE.md](DEDUPE.md)
 mailer.py                  отправка Excel по почте
 cache/                     кэш парсинга
 output/                    Excel-выгрузки
