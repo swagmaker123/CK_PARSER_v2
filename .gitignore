@@ -14,8 +14,9 @@ venv/
 .venv/
 
 # Generated at runtime — do not commit
-cache/
 logs/
+
+# cache/ is tracked on purpose (parsed/filtered JSON for reproducibility)
 
 # output/: keep Excel exports, ignore other runtime files
 output/*
