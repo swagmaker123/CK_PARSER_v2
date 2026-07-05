@@ -5,7 +5,7 @@ from common.cache import JsonCache
 from common.http_client import HttpClient
 from common.logging import RunStats
 from common.paths import PROJECT_ROOT
-from export.writer import load_export_config
+from config.export_defaults import load_export_config
 from filters.apply import apply_filter
 from filters.engine import load_filter
 

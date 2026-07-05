@@ -1,4 +1,3 @@
-import json
 import os
 import re
 from datetime import date, datetime
@@ -6,25 +5,8 @@ from datetime import date, datetime
 import pandas as pd
 
 from common.paths import PROJECT_ROOT
-
-CK_EXPORT_NAMES = {
-    "payment_systems": "ПС",
-    "ssem": "ССЭМ",
-    "taxes": "Налоги",
-}
-
-SOURCE_LABELS = {
-    "banki": "Банки.ру",
-    "cbr": "Центробанк",
-    "garant": "Гарант.ру",
-    "interfax": "Interfax",
-    "kommersant": "Kommersant",
-    "minfin": "МинФин",
-    "nalog": "ФНС",
-    "palata": "Палата НК",
-    "rbc": "РБК",
-    "consultant": "Consultant",
-}
+from config.ck import get_ck_export_title
+from config.sources.registry import get_source_label
 
 EXPORT_FIELD_MAP = {
     "Дата новости": "date",
@@ -61,15 +43,15 @@ RUSSIAN_MONTHS = {
 
 
 def load_export_config(source_id=None, ck_id=None):
-    config_path = os.path.join(PROJECT_ROOT, "export", "default.json")
+    from config.export_defaults import load_export_config as _load_export_config
 
-    with open(config_path, encoding="utf-8") as f:
-        return json.load(f)
+    return _load_export_config(source_id, ck_id)
 
 
 def get_ck_title(ck_id):
-    if ck_id in CK_EXPORT_NAMES:
-        return CK_EXPORT_NAMES[ck_id]
+    export_title = get_ck_export_title(ck_id)
+    if export_title:
+        return export_title
 
     try:
         from filters.engine import load_filter
@@ -125,7 +107,7 @@ def _project_row(item, ck_id, source_id):
         if column == "Наименование ЦК":
             row[column] = get_ck_title(ck_id)
         elif column == "Источник":
-            row[column] = SOURCE_LABELS.get(source_id, source_id)
+            row[column] = get_source_label(source_id)
         else:
             source_field = EXPORT_FIELD_MAP.get(column, column)
             value = item.get(source_field, "")

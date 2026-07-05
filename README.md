@@ -10,7 +10,7 @@
 
 ## Источники
 
-По умолчанию парсятся все источники из списка ниже (в таком порядке):
+По умолчанию парсятся все источники (в порядке из `config/sources/registry.py`):
 
 | `--source` | Название в Excel |
 |---|---|
@@ -25,12 +25,12 @@
 | `rbc` | РБК |
 | `consultant` | Consultant |
 
-Kommersant использует Playwright (Chromium) — нужен `playwright install chromium`.
+Kommersant использует Playwright (Chromium) — нужен `playwright install chromium`. Парсер подгружается только при запуске `--source kommersant`.
 
 ## Установка
 
 ```powershell
-cd C:\Users\asus\Desktop\CK_PARSER
+cd C:\path\to\CK_PARSER
 python -m venv venv
 .\venv\Scripts\activate
 python -m pip install --upgrade pip
@@ -61,6 +61,8 @@ python main.py --source rbc --ck payment_systems
 python main.py --ck taxes
 python main.py --export-only --days 30
 python main.py --enrich
+python main.py --send
+python main.py --send-only output/news_2026-06-25.xlsx
 ```
 
 | Аргумент | Описание |
@@ -75,8 +77,21 @@ python main.py --enrich
 | `--output` | Путь к Excel для `--enrich-only` |
 | `--top-n` | Размер основного топа (по умолчанию 10) |
 | `--reserve-n` | Размер резерва после топа (по умолчанию 5) |
+| `--send` | После прогона отправить итоговый Excel по email |
+| `--send-only` | Только отправить указанный Excel по email, без парсинга |
+| `--send-to` | Адресаты email (если не задано — `DEFAULT_RECIPIENTS` из `.env`) |
 
 `--export-only` читает уже отфильтрованный кэш. Если менялись правила фильтра — сначала обычный `python main.py` (пересбор из raw-кэша), потом при необходимости `--export-only`.
+
+### Email
+
+Для `--send` / `--send-only` в `~/.openclaw/.env` (или в окружении):
+
+```text
+SMTP_LOGIN=...
+SMTP_PASSWORD=...
+DEFAULT_RECIPIENTS=user@example.com,other@example.com
+```
 
 ## LLM audit ranking
 
@@ -171,23 +186,41 @@ cache/{источник}/{ck_id}/cache.json
 logs/run_YYYY-MM-DD_HH-MM-SS.log
 ```
 
+## Тесты
+
+```powershell
+pip install -r requirements.txt
+python -m pytest tests/ -v
+```
+
+Проверяются: справочник источников (`config/sources/registry.py`), форматы дат в `--export-only`, алиасы ЦК.
+
 ## Фильтры
 
 Правила ЦК: `filters/ck/{ck_id}/rules.py` (в файле — `PROFILE`).
 
-## Структура
+## Структура проекта
 
 ```text
-main.py                    CLI
-parsers/                   парсеры источников
-config/sources/            конфиги источников
-filters/ck/                правила ЦК
-export/                    Excel, enricher, audit_ranker
-llm/                       клиент LLM, audit ranking, промпты
-dedupe/                    semantic dedupe через Cloud.ru — см. [DEDUPE.md](DEDUPE.md)
-mailer.py                  отправка Excel по почте
-cache/                     кэш парсинга
-output/                    Excel-выгрузки
-logs/                      логи прогонов
-LLM_AUDIT_RANKING.md       документация по LLM-постобработке
+main.py                         точка входа, загрузка .env
+cli.py                          аргументы командной строки
+runner.py                       оркестрация прогона
+parsers/                        парсеры источников
+config/sources/                 конфиги и registry источников
+config/sources/registry.py      единый справочник всех источников
+config/ck.py                    справочник ЦК (id, названия, алиасы)
+config/export_defaults.py       настройки экспорта для парсеров
+filters/ck/                     правила ЦК
+export/                         Excel, enricher, from_cache
+llm/                            клиент LLM, audit ranking, промпты
+dedupe/                         semantic dedupe через Cloud.ru — см. [DEDUPE.md](DEDUPE.md)
+common/                         HTTP, кэш, dedupe статей, paths
+mailer.py                       отправка Excel по почте
+tests/                          pytest-тесты registry и from_cache
+cache/                          кэш парсинга
+output/                         Excel-выгрузки
+logs/                           логи прогонов
+LLM_AUDIT_RANKING.md            документация по LLM-постобработке
 ```
+
+Краткая шпаргалка по запуску: [КАК ЗАПУСТИТЬ.md](КАК ЗАПУСТИТЬ.md).

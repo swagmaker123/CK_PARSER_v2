@@ -4,23 +4,11 @@ import os
 from common.articles import dedupe_articles
 from common.cache import JsonCache
 from common.paths import PROJECT_ROOT
-
-SOURCE_CACHE_KEYS = {
-    "consultant": "reviews",
-}
-
-SOURCE_DATE_KEY_FORMATS = {
-    "interfax": "%Y/%m/%d",
-    "kommersant": "%Y-%m-%d",
-}
+from config.sources.registry import get_cache_date_key_format, get_cache_root_key
 
 
-def _cache_root_key(source_id):
-    return SOURCE_CACHE_KEYS.get(source_id, "days")
-
-
-def _cache_key_in_range(source_id, key, days, today):
-    date_format = SOURCE_DATE_KEY_FORMATS.get(source_id)
+def cache_key_in_range(source_id, key, days, today):
+    date_format = get_cache_date_key_format(source_id)
     if date_format:
         valid_dates = {
             (today - datetime.timedelta(days=i)).strftime(date_format)
@@ -38,7 +26,7 @@ def _cache_key_in_range(source_id, key, days, today):
 
 
 def load_ck_cache_articles(source_id, ck_id, days):
-    root_key = _cache_root_key(source_id)
+    root_key = get_cache_root_key(source_id)
     cache_path = os.path.join(
         PROJECT_ROOT,
         "cache",
@@ -51,7 +39,7 @@ def load_ck_cache_articles(source_id, ck_id, days):
     articles = []
 
     for key, entry in cache.get(root_key, {}).items():
-        if not _cache_key_in_range(source_id, key, days, today):
+        if not cache_key_in_range(source_id, key, days, today):
             continue
 
         items = entry.get("items") or entry.get("articles") or []
