@@ -1,20 +1,29 @@
 import datetime
 import os
 
+from common.articles import dedupe_articles
 from common.cache import JsonCache
 from common.paths import PROJECT_ROOT
 
 SOURCE_CACHE_KEYS = {
-    "interfax": "days",
-    "kommersant": "days",
     "consultant": "reviews",
 }
 
+SOURCE_DATE_KEY_FORMATS = {
+    "interfax": "%Y/%m/%d",
+    "kommersant": "%Y-%m-%d",
+}
+
+
+def _cache_root_key(source_id):
+    return SOURCE_CACHE_KEYS.get(source_id, "days")
+
 
 def _cache_key_in_range(source_id, key, days, today):
-    if source_id in ("interfax", "kommersant"):
+    date_format = SOURCE_DATE_KEY_FORMATS.get(source_id)
+    if date_format:
         valid_dates = {
-            (today - datetime.timedelta(days=i)).strftime("%Y/%m/%d")
+            (today - datetime.timedelta(days=i)).strftime(date_format)
             for i in range(days)
         }
         return key in valid_dates
@@ -28,30 +37,8 @@ def _cache_key_in_range(source_id, key, days, today):
     return review_date >= cutoff
 
 
-def _dedupe_articles(articles):
-    unique = []
-    seen_urls = set()
-    seen_titles = set()
-
-    for article in articles:
-        url = article.get("url", "")
-        title = article.get("title", "").strip()
-
-        if url in seen_urls or title in seen_titles:
-            continue
-
-        if url:
-            seen_urls.add(url)
-        if title:
-            seen_titles.add(title)
-
-        unique.append(article)
-
-    return unique
-
-
 def load_ck_cache_articles(source_id, ck_id, days):
-    root_key = SOURCE_CACHE_KEYS[source_id]
+    root_key = _cache_root_key(source_id)
     cache_path = os.path.join(
         PROJECT_ROOT,
         "cache",
@@ -70,7 +57,7 @@ def load_ck_cache_articles(source_id, ck_id, days):
         items = entry.get("items") or entry.get("articles") or []
         articles.extend(items)
 
-    return _dedupe_articles(articles)
+    return dedupe_articles(articles)
 
 
 def load_all_from_cache(sources, ck_profiles, days):

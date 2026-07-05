@@ -1,5 +1,6 @@
 import os
 
+from common.articles import dedupe_articles
 from common.cache import JsonCache
 from common.http_client import HttpClient
 from common.logging import RunStats
@@ -147,20 +148,4 @@ class FilteredParserBase:
         return day_results
 
     def _dedupe_articles(self, articles, seen_urls, seen_titles):
-        unique = []
-
-        for article in articles:
-            url = article.get("url", "")
-            title = article.get("title", "").strip()
-
-            if url in seen_urls or title in seen_titles:
-                continue
-
-            if url:
-                seen_urls.add(url)
-            if title:
-                seen_titles.add(title)
-
-            unique.append(article)
-
-        return unique
+        return dedupe_articles(articles, seen_urls, seen_titles)

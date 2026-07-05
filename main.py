@@ -97,6 +97,40 @@ def run_source(source_id, ck_profiles, days, refresh_days, logger, log_file, sta
     )
 
 
+def _resolve_email_recipients(send_to):
+    recipients = send_to or [
+        r.strip()
+        for r in os.getenv("DEFAULT_RECIPIENTS", "").split(",")
+        if r.strip()
+    ]
+    if not recipients:
+        print("Ошибка: не указаны адресаты (--send-to или DEFAULT_RECIPIENTS в .env)")
+        raise SystemExit(1)
+    return recipients
+
+
+def _send_digest_email(attachment_path, subject, send_to=None, logger=None):
+    from mailer import send_news_email_plain
+
+    smtp_login = os.getenv("SMTP_LOGIN")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    if not smtp_login or not smtp_password:
+        print("Ошибка: SMTP_LOGIN / SMTP_PASSWORD не заданы в .env")
+        raise SystemExit(1)
+
+    recipients = _resolve_email_recipients(send_to)
+    send_news_email_plain(
+        smtp_login=smtp_login,
+        smtp_password=smtp_password,
+        recipients=recipients,
+        subject=subject,
+        attachments=[str(attachment_path)],
+    )
+    print(f"Письмо отправлено: {', '.join(recipients)}  |  вложение: {attachment_path}")
+    if logger is not None:
+        logger.info("Письмо отправлено: %s", ", ".join(recipients))
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Парсер новостей по источнику и профилю ЦК",
@@ -109,7 +143,9 @@ def main():
             "  python main.py --days 30             # все источники за 30 дней\n"
             "  python main.py --export-only         # Excel из кэша, без загрузки\n"
             "  python main.py --enrich-only --ck payment_systems  # топ по ПС из сегодняшнего Excel\n"
-            "  python main.py --ck payment_systems  # только ЦК payment_systems"
+            "  python main.py --ck payment_systems  # только ЦК payment_systems\n"
+            "  python main.py --send                # после прогона отправить Excel по email\n"
+            "  python main.py --send-only output/news_2026-07-01.xlsx  # только отправка файла"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -178,10 +214,44 @@ def main():
         default=5,
         help="Количество резервных новостей для audit ranking (default: 5)",
     )
+    parser.add_argument(
+        "--send",
+        action="store_true",
+        help="После прогона отправить итоговый Excel по email",
+    )
+    parser.add_argument(
+        "--send-only",
+        type=str,
+        metavar="FILE",
+        default=None,
+        help="Только отправить указанный Excel по email, без парсинга",
+    )
+    parser.add_argument(
+        "--send-to",
+        nargs="+",
+        default=None,
+        help="Адресаты email (если не задано — DEFAULT_RECIPIENTS из .env)",
+    )
     args = parser.parse_args()
 
     refresh_days = max(args.refresh_days, MIN_REFRESH_DAYS)
     days = args.days
+
+    if args.send_only:
+        from pathlib import Path as _Path
+
+        target = _Path(args.send_only)
+        if not target.exists():
+            print(f"Ошибка: файл не найден — {target}")
+            raise SystemExit(1)
+
+        _send_digest_email(
+            target,
+            subject=f"Дайджест новостей — {target.stem}",
+            send_to=args.send_to,
+        )
+        print(f"Завершено: {datetime.now():%Y-%m-%d %H:%M:%S}")
+        raise SystemExit(0)
 
     # --- Режимы постобработки готового Excel ---
     postprocess_only = args.enrich_only
@@ -294,71 +364,13 @@ def main():
         logger.info("========== ИТОГ ПРОГОНА ==========")
         log_run_summary(logger, stats)
 
-    # --- Режим только отправки ---
-    if args.send_only:
-        from pathlib import Path as _Path
-        from mailer import send_news_email_plain
-
-        target = _Path(args.send_only)
-        if not target.exists():
-            print(f"Ошибка: файл не найден — {target}")
-            raise SystemExit(1)
-
-        smtp_login = os.getenv("SMTP_LOGIN")
-        smtp_password = os.getenv("SMTP_PASSWORD")
-        if not smtp_login or not smtp_password:
-            print("Ошибка: SMTP_LOGIN / SMTP_PASSWORD не заданы в .env")
-            raise SystemExit(1)
-
-        recipients = args.send_to or [
-            r.strip()
-            for r in os.getenv("DEFAULT_RECIPIENTS", "").split(",")
-            if r.strip()
-        ]
-        if not recipients:
-            print("Ошибка: не указаны адресаты (--send-to или DEFAULT_RECIPIENTS в .env)")
-            raise SystemExit(1)
-
-        subject = f"Дайджест новостей — {target.stem}"
-        send_news_email_plain(
-            smtp_login=smtp_login,
-            smtp_password=smtp_password,
-            recipients=recipients,
-            subject=subject,
-            attachments=[str(target)],
-        )
-        print(f"Письмо отправлено: {', '.join(recipients)}  |  вложение: {target.name}")
-        raise SystemExit(0)
-
-    # Опциональная отправка по email
     if args.send:
-        from mailer import send_news_email_plain
-
-        smtp_login = os.getenv("SMTP_LOGIN")
-        smtp_password = os.getenv("SMTP_PASSWORD")
-        if not smtp_login or not smtp_password:
-            print("Ошибка: SMTP_LOGIN / SMTP_PASSWORD не заданы в .env")
-            raise SystemExit(1)
-
-        recipients = args.send_to or [
-            r.strip()
-            for r in os.getenv("DEFAULT_RECIPIENTS", "").split(",")
-            if r.strip()
-        ]
-        if not recipients:
-            print("Ошибка: не указаны адресаты (--send-to или DEFAULT_RECIPIENTS в .env)")
-            raise SystemExit(1)
-
-        subject = f"Дайджест новостей — {run_date}"
-        send_news_email_plain(
-            smtp_login=smtp_login,
-            smtp_password=smtp_password,
-            recipients=recipients,
-            subject=subject,
-            attachments=[str(unified_path)],
+        _send_digest_email(
+            unified_path,
+            subject=f"Дайджест новостей — {run_date}",
+            send_to=args.send_to,
+            logger=logger,
         )
-        print(f"Письмо отправлено: {', '.join(recipients)}  |  вложение: {unified_path}")
-        logger.info("Письмо отправлено: %s", ", ".join(recipients))
 
     print(f"\nЗавершено: {datetime.now():%Y-%m-%d %H:%M:%S}")
 
