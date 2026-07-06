@@ -1,6 +1,7 @@
 import argparse
 
 from config.sources.registry import source_choices
+from mailer import DEFAULT_EMAIL_HEADER_FILENAME
 from runner import (
     ALL_CK,
     DEFAULT_CK,
@@ -25,8 +26,8 @@ def build_parser():
             "  python main.py --export-only         # Excel из кэша, без загрузки\n"
             "  python main.py --enrich-only --ck payment_systems  # топ по ПС из сегодняшнего Excel\n"
             "  python main.py --ck payment_systems  # только ЦК payment_systems\n"
-            "  python main.py --send                # после прогона отправить Excel по email\n"
-            "  python main.py --send-only output/news_2026-07-01.xlsx  # только отправка файла"
+            "  python main.py --enrich --send           # enrich + HTML-письмо с Excel\n"
+            "  python main.py --send-only output/news_2026-07-01.xlsx  # только отправка enrich-Excel"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -98,20 +99,35 @@ def build_parser():
     parser.add_argument(
         "--send",
         action="store_true",
-        help="После прогона отправить итоговый Excel по email",
+        help="После прогона отправить HTML-письмо с топом новостей и Excel (нужен enrich)",
     )
     parser.add_argument(
         "--send-only",
         type=str,
         metavar="FILE",
         default=None,
-        help="Только отправить указанный Excel по email, без парсинга",
+        help="Только отправить указанный enrich-Excel по email (HTML + вложение)",
     )
     parser.add_argument(
         "--send-to",
         nargs="+",
         default=None,
         help="Адресаты email (если не задано — DEFAULT_RECIPIENTS из .env)",
+    )
+    parser.add_argument(
+        "--email-header",
+        type=str,
+        default=None,
+        help=(
+            "Картинка шапки для HTML-письма "
+            f"(по умолчанию: assets/{DEFAULT_EMAIL_HEADER_FILENAME})"
+        ),
+    )
+    parser.add_argument(
+        "--send-top-n",
+        type=int,
+        default=10,
+        help="Сколько новостей показать в HTML-письме (default: 10)",
     )
     return parser
 

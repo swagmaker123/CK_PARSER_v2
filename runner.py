@@ -2,13 +2,15 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 from common.logging import RunStats, log_run_summary, setup_run_logger
 from config.ck import discover_ck_profiles
 from config.sources.registry import get_parser_class, source_ids
 from export.enricher import enrich_excel
 from export.from_cache import load_all_from_cache
 from export.writer import write_unified_excel
-from mailer import send_news_email_plain
+from mailer import require_llm_columns_for_send, resolve_email_header_path, send_news_email
 
 ALL_CK = "all"
 DEFAULT_CK = ALL_CK
@@ -55,22 +57,45 @@ def _resolve_email_recipients(send_to):
     return recipients
 
 
-def send_digest_email(attachment_path, subject, send_to=None, logger=None):
+def _load_excel_for_send(excel_path):
+    excel_path = Path(excel_path)
+    df = pd.read_excel(excel_path)
+    require_llm_columns_for_send(df, excel_path)
+    return df
+
+
+def send_digest_email(
+    attachment_path,
+    subject,
+    send_to=None,
+    logger=None,
+    header_image_path=None,
+    latest_news_limit=10,
+):
     smtp_login = os.getenv("SMTP_LOGIN")
     smtp_password = os.getenv("SMTP_PASSWORD")
     if not smtp_login or not smtp_password:
         print("Ошибка: SMTP_LOGIN / SMTP_PASSWORD не заданы в .env")
         raise SystemExit(1)
 
+    attachment_path = Path(attachment_path)
+    news_df = _load_excel_for_send(attachment_path)
+    header_path = resolve_email_header_path(header_image_path)
     recipients = _resolve_email_recipients(send_to)
-    send_news_email_plain(
+    send_news_email(
         smtp_login=smtp_login,
         smtp_password=smtp_password,
         recipients=recipients,
         subject=subject,
+        final_df=news_df,
+        header_image_path=header_path,
+        latest_news_limit=latest_news_limit,
         attachments=[str(attachment_path)],
     )
-    print(f"Письмо отправлено: {', '.join(recipients)}  |  вложение: {attachment_path}")
+    print(
+        f"HTML-письмо отправлено: {', '.join(recipients)}  |  "
+        f"вложение: {attachment_path.name}  |  шапка: {header_path.name}"
+    )
     if logger is not None:
         logger.info("Письмо отправлено: %s", ", ".join(recipients))
 
@@ -85,6 +110,8 @@ def run_send_only(args):
         target,
         subject=f"Дайджест новостей — {target.stem}",
         send_to=args.send_to,
+        header_image_path=args.email_header,
+        latest_news_limit=args.send_top_n,
     )
     print(f"Завершено: {datetime.now():%Y-%m-%d %H:%M:%S}")
 
@@ -188,6 +215,8 @@ def run_pipeline(args):
             subject=f"Дайджест новостей — {run_date}",
             send_to=args.send_to,
             logger=logger,
+            header_image_path=args.email_header,
+            latest_news_limit=args.send_top_n,
         )
 
     print(f"\nЗавершено: {datetime.now():%Y-%m-%d %H:%M:%S}")

@@ -42,7 +42,36 @@ playwright install chromium
 
 Для LLM-постобработки нужен ключ API (см. раздел ниже).
 
-## Запуск парсинга
+## Запуск
+
+### Что делает `python main.py` без флагов
+
+**Только сбор данных и Excel.** LLM и почта **не запускаются**.
+
+| Этап | `python main.py` | Нужен флаг |
+|------|------------------|------------|
+| Парсинг всех источников | ✅ | — |
+| Все ЦК (ПС, ССЭМ, Налоги) | ✅ | — |
+| 30 дней, refresh последних 2 | ✅ | — |
+| Excel в `output/` | ✅ | — |
+| LLM enrich | ❌ | `--enrich` |
+| Email | ❌ | `--send` |
+
+Полный пайплайн «парсинг → enrich → письмо»:
+
+```powershell
+python main.py --enrich --send
+```
+
+Порядок в одном прогоне:
+
+1. Парсинг → Excel  
+2. LLM audit ranking (колонки `llm_score`, `llm_summary`, …)  
+3. HTML-письмо + Excel во вложении  
+
+> `--send` **без** `--enrich` в том же запуске завершится ошибкой: в свежем Excel ещё нет `llm_score`.
+
+### Базовый запуск
 
 ```powershell
 .\venv\Scripts\activate
@@ -51,17 +80,30 @@ python main.py
 
 По умолчанию: все источники, все ЦК, 30 дней. Последние 2 дня всегда перекачиваются (`--refresh-days`, минимум 2).
 
-Частые варианты:
+### Частые команды
 
 ```powershell
-python main.py --days 30
-python main.py --days 30 --refresh-days 30
+# только парсинг + Excel (по умолчанию)
+python main.py
+
+# парсинг + LLM
+python main.py --enrich
+
+# парсинг + LLM + HTML-письмо (полный цикл)
+python main.py --enrich --send
+
+# только Excel из кэша, без сайтов
+python main.py --export-only --days 30
+
+# один источник / один ЦК
 python main.py --source cbr
 python main.py --source rbc --ck payment_systems
 python main.py --ck taxes
-python main.py --export-only --days 30
-python main.py --enrich
-python main.py --send
+
+# LLM по уже готовому Excel
+python main.py --enrich-only --output output/news_2026-06-25.xlsx
+
+# только отправка enrich-Excel
 python main.py --send-only output/news_2026-06-25.xlsx
 ```
 
@@ -77,13 +119,44 @@ python main.py --send-only output/news_2026-06-25.xlsx
 | `--output` | Путь к Excel для `--enrich-only` |
 | `--top-n` | Размер основного топа (по умолчанию 10) |
 | `--reserve-n` | Размер резерва после топа (по умолчанию 5) |
-| `--send` | После прогона отправить итоговый Excel по email |
-| `--send-only` | Только отправить указанный Excel по email, без парсинга |
+| `--send` | После прогона отправить **HTML-письмо** (**обязательно вместе с `--enrich` в том же запуске**, либо enrich-Excel для `--send-only`) |
+| `--send-only` | Только отправить enrich-Excel по email (HTML + вложение) |
 | `--send-to` | Адресаты email (если не задано — `DEFAULT_RECIPIENTS` из `.env`) |
+| `--email-header` | Путь к картинке шапки (по умолчанию `assets/email_header.png`) |
+| `--send-top-n` | Сколько новостей показать в HTML-письме (default: 10) |
 
 `--export-only` читает уже отфильтрованный кэш. Если менялись правила фильтра — сначала обычный `python main.py` (пересбор из raw-кэша), потом при необходимости `--export-only`.
 
 ### Email
+
+`--send` и `--send-only` отправляют **HTML-письмо** (карточки новостей + Excel во вложении).
+
+Требования:
+
+1. Excel **после LLM enrich** — в файле должна быть колонка `llm_score`
+2. Картинка шапки: **`assets/email_header.png`** (положите файл в папку `assets/`)
+
+Пример:
+
+```powershell
+python main.py --enrich-only --output output/news_2026-06-25.xlsx
+python main.py --send-only output/news_2026-06-25.xlsx
+
+# или за один прогон
+python main.py --enrich --send
+```
+
+Другой путь к шапке:
+
+```powershell
+python main.py --send-only output/news_2026-06-25.xlsx --email-header assets/my_banner.png
+```
+
+или в `.env`:
+
+```text
+EMAIL_HEADER_IMAGE=assets/my_banner.png
+```
 
 Для `--send` / `--send-only` в `~/.openclaw/.env` (или в окружении):
 
@@ -215,7 +288,8 @@ export/                         Excel, enricher, from_cache
 llm/                            клиент LLM, audit ranking, промпты
 dedupe/                         semantic dedupe через Cloud.ru — см. [DEDUPE.md](DEDUPE.md)
 common/                         HTTP, кэш, dedupe статей, paths
-mailer.py                       отправка Excel по почте
+mailer.py                       HTML-рассылка и Excel-вложение
+assets/email_header.png         шапка HTML-письма (положить вручную)
 tests/                          pytest-тесты registry и from_cache
 cache/                          кэш парсинга
 output/                         Excel-выгрузки
