@@ -1,6 +1,8 @@
 import datetime
 import json
 import os
+import time
+import uuid
 
 
 class JsonCache:
@@ -30,9 +32,47 @@ class JsonCache:
         return data
 
     def save(self, cache):
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(cache, f, ensure_ascii=False, indent=2)
+        """Атомарная запись: tmp → replace. С ретраями на Windows Errno 22 / lock."""
+        dirname = os.path.dirname(self.path) or "."
+        os.makedirs(dirname, exist_ok=True)
+
+        tmp_path = os.path.join(
+            dirname,
+            f".{os.path.basename(self.path)}.{uuid.uuid4().hex}.tmp",
+        )
+        last_error = None
+
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+
+            for attempt in range(1, 6):
+                try:
+                    os.replace(tmp_path, self.path)
+                    return
+                except OSError as e:
+                    last_error = e
+                    # Windows: Errno 22 / PermissionError при lock антивирусом / индексером
+                    if self.log_fn is not None:
+                        self.log_fn(
+                            "warning",
+                            "Не удалось заменить кэш (попытка %s/5): %s",
+                            attempt,
+                            e,
+                        )
+                    time.sleep(0.15 * attempt)
+
+            raise OSError(
+                f"Не удалось сохранить кэш после ретраев: {self.path}"
+            ) from last_error
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     def get(self, cache, key):
         return cache[self.root_key].get(key)

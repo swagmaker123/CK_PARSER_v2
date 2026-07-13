@@ -121,6 +121,8 @@ def call_llm_json(prompt: str) -> dict:
     Отправляет промпт в LLM API и возвращает произвольный JSON-ответ.
     Используется новыми сценариями, где структура ответа не ограничена
     summary/score.
+
+    Ретраи на 429/502/503/504 и сетевые сбои (LLM_MAX_RETRIES, по умолчанию 3).
     """
     api_key = os.getenv("FOUNDATION_MODELS_API_KEY")
     if not api_key:
@@ -137,28 +139,105 @@ def call_llm_json(prompt: str) -> dict:
         "stream": False,
     }
 
+    max_retries = _env_int("LLM_MAX_RETRIES", 3)
+    backoff = _env_float("LLM_RETRY_BACKOFF", 2.0)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
     logger.debug("LLM запрос: model=%s, temperature=%s", LLM_MODEL, TEMPERATURE)
 
-    response = requests.post(
-        LLM_API_URL,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=300,
-    )
-    response.raise_for_status()
+    last_error: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(
+                LLM_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=300,
+            )
+            if response.status_code in _RETRYABLE_STATUS and attempt < max_retries:
+                wait = backoff * (2 ** attempt)
+                logger.warning(
+                    "LLM HTTP %s, повтор %s/%s через %.1fs",
+                    response.status_code,
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
 
-    data = response.json()
-    message = data["choices"][0]["message"]
-    content = message.get("content")
+            response.raise_for_status()
 
-    if content is None:
-        reasoning = message.get("reasoning")
-        if reasoning:
-            content = reasoning
-        else:
-            raise ValueError("LLM вернул пустой ответ (content=None, reasoning=None)")
+            data = response.json()
+            message = data["choices"][0]["message"]
+            content = message.get("content")
 
-    return extract_json_from_response(content)
+            if content is None:
+                reasoning = message.get("reasoning")
+                if reasoning:
+                    content = reasoning
+                else:
+                    raise ValueError(
+                        "LLM вернул пустой ответ (content=None, reasoning=None)"
+                    )
+
+            return extract_json_from_response(content)
+
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            last_error = e
+            if attempt >= max_retries:
+                break
+            wait = backoff * (2 ** attempt)
+            logger.warning(
+                "LLM сеть/таймаут (%s), повтор %s/%s через %.1fs",
+                e,
+                attempt + 1,
+                max_retries,
+                wait,
+            )
+            time.sleep(wait)
+        except requests.exceptions.HTTPError as e:
+            last_error = e
+            status = getattr(e.response, "status_code", None)
+            if status in _RETRYABLE_STATUS and attempt < max_retries:
+                wait = backoff * (2 ** attempt)
+                logger.warning(
+                    "LLM HTTPError %s, повтор %s/%s через %.1fs",
+                    status,
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+            raise
+
+    raise RuntimeError(
+        f"LLM запрос не удался после {max_retries + 1} попыток"
+    ) from last_error
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(0.1, float(raw))
+    except ValueError:
+        return default
+
+
+_RETRYABLE_STATUS = {429, 502, 503, 504}

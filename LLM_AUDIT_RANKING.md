@@ -37,6 +37,8 @@ LLM audit ranking работает в три этапа:
 - Если процесс упал — снова запусти тот же файл:
   `python main.py --enrich-only --output output/news_YYYY-MM-DD.xlsx`
 - Строки с заполненным `_audit_ck_id` пропускаются, скоринг идёт дальше.
+- Строки с `_audit_reason` вида `Ошибка LLM scoring: ...` (например после 503) при resume **переобрабатываются**.
+- LLM-запросы ретраятся на 429/502/503/504 (`LLM_MAX_RETRIES=3`, `LLM_RETRY_BACKOFF=2`).
 - В финальном Excel `_audit_*` удаляются (остаются `llm_score`, `llm_summary`, `top_rank`, `is_top_news`).
 
 Интервал в `.env`:

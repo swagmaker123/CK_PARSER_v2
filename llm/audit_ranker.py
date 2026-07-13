@@ -25,6 +25,7 @@ RANKING_COLUMNS = [
 
 MAX_RANKING_CANDIDATES = 30
 DEFAULT_CHECKPOINT_EVERY = 10
+LLM_ERROR_REASON_PREFIX = "Ошибка LLM scoring:"
 
 
 def _checkpoint_every() -> int:
@@ -37,8 +38,24 @@ def _checkpoint_every() -> int:
         return DEFAULT_CHECKPOINT_EVERY
 
 
+def _is_llm_error_row(row) -> bool:
+    """Строка упала на LLM (503 и т.п.) — при resume переобработаем."""
+    reason = row.get("_audit_reason")
+    if reason is None:
+        return False
+    try:
+        if pd.isna(reason):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return str(reason).strip().startswith(LLM_ERROR_REASON_PREFIX)
+
+
 def _row_already_scored(row) -> bool:
-    """Строка уже прошла 1-й проход (есть в checkpoint Excel с _audit_ck_id)."""
+    """Строка уже успешно прошла 1-й проход (есть _audit_ck_id, без LLM-ошибки)."""
+    if _is_llm_error_row(row):
+        return False
+
     value = row.get("_audit_ck_id")
     if value is None:
         return False
@@ -210,7 +227,7 @@ def score_news_by_ck(
             df.at[idx, "llm_score"] = 0
             df.at[idx, "_audit_is_candidate"] = "0"
             df.at[idx, "_audit_topic"] = "not_relevant"
-            df.at[idx, "_audit_reason"] = f"Ошибка LLM scoring: {e}"
+            df.at[idx, "_audit_reason"] = f"{LLM_ERROR_REASON_PREFIX} {e}"
             since_checkpoint += 1
             _maybe_checkpoint()
 
