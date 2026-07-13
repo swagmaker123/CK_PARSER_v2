@@ -29,6 +29,8 @@ Kommersant использует Playwright (Chromium) — нужен `playwright
 
 ## Установка
 
+**Windows (PowerShell):**
+
 ```powershell
 cd C:\path\to\CK_PARSER
 python -m venv venv
@@ -37,6 +39,29 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 playwright install chromium
 ```
+
+**Linux / macOS:**
+
+```bash
+cd /path/to/CK_PARSER
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+# Chromium + системные библиотеки Linux (libnss3, libatk и т.д.)
+playwright install --with-deps chromium
+```
+
+На Linux venv активируется через `source venv/bin/activate` (не `.\venv\Scripts\activate`).
+
+`install --with-deps` подтянет OS-пакеты через `apt` (нужен `sudo`). Если команда в venv недоступна под sudo:
+
+```bash
+sudo ./venv/bin/playwright install-deps chromium
+playwright install chromium
+```
+
+Официально поддерживаются Debian 12/13 и Ubuntu 22.04/24.04/26.04. Подробнее: [Playwright — Browsers](https://playwright.dev/python/docs/browsers#install-system-dependencies).
 
 Для Kommersant обязателен Chromium из Playwright (см. выше).
 
@@ -59,7 +84,7 @@ playwright install chromium
 
 Полный пайплайн «парсинг → enrich → письмо»:
 
-```powershell
+```bash
 python main.py --enrich --send
 ```
 
@@ -73,8 +98,17 @@ python main.py --enrich --send
 
 ### Базовый запуск
 
+**Windows:**
+
 ```powershell
 .\venv\Scripts\activate
+python main.py
+```
+
+**Linux / macOS:**
+
+```bash
+source venv/bin/activate
 python main.py
 ```
 
@@ -152,20 +186,22 @@ python main.py --enrich --send
 python main.py --send-only output/news_2026-06-25.xlsx --email-header assets/my_banner.png
 ```
 
-или в `.env`:
+или в `.env` проекта:
 
 ```text
 EMAIL_HEADER_IMAGE=assets/my_banner.png
 ```
 
-Для `--send` / `--send-only` в `~/.openclaw/.env` (или в окружении):
+Для `--send` / `--send-only` в `.env` проекта (см. `.env.example`):
 
 ```text
 SMTP_LOGIN=...
 SMTP_PASSWORD=...
+EMAIL_FROM=kutuzov.d.mi@sberbank.ru
 DEFAULT_RECIPIENTS=user@example.com,other@example.com
 ```
 
+Можно также держать секреты в `~/.openclaw/.env` — он подхватывается как fallback, если переменной нет в `.env` проекта.
 ## LLM audit ranking
 
 После сборки Excel можно прогнать двухэтапную LLM-постобработку:
@@ -191,7 +227,7 @@ python main.py --enrich-only --output output/news_2026-06-25.xlsx --ck payment_s
 
 ### Настройка LLM
 
-`main.py` загружает переменные из `~/.openclaw/.env`.
+`main.py` загружает переменные из `.env` в корне проекта (приоритет), затем из `~/.openclaw/.env` (fallback).
 
 Минимум:
 

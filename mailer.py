@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import mimetypes
 import os
 import smtplib
+import ssl
 from typing import Iterable
 
 import pandas as pd
@@ -16,6 +17,10 @@ LLM_SEND_REQUIRED_COLUMNS = ("llm_score",)
 
 DEFAULT_EMAIL_HEADER_FILENAME = "email_header.png"
 DEFAULT_EMAIL_HEADER_PATH = Path("assets") / DEFAULT_EMAIL_HEADER_FILENAME
+
+DEFAULT_SMTP_HOST = "smtp.sberbank.ru"
+DEFAULT_SMTP_PORT = 587
+DEFAULT_EMAIL_FROM = "----"
 
 DEFAULT_REQUIRED_COLUMNS = [
     "Дата новости",
@@ -420,6 +425,25 @@ def attach_files(msg: EmailMessage, file_paths: Iterable[str | Path]) -> None:
             )
 
 
+def _send_via_smtp(
+    msg: EmailMessage,
+    smtp_login: str,
+    smtp_password: str,
+    smtp_host: str = DEFAULT_SMTP_HOST,
+    smtp_port: int = DEFAULT_SMTP_PORT,
+) -> None:
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.ehlo()
+        server.starttls(context=context)
+        server.ehlo()
+        server.login(smtp_login, smtp_password)
+        server.send_message(msg)
+
+
 def send_news_email(
     smtp_login: str,
     smtp_password: str,
@@ -427,8 +451,9 @@ def send_news_email(
     subject: str,
     final_df: pd.DataFrame,
     header_image_path: str | Path | None = None,
-    smtp_host: str = "smtp.mail.ru",
-    smtp_port: int = 465,
+    smtp_host: str = DEFAULT_SMTP_HOST,
+    smtp_port: int = DEFAULT_SMTP_PORT,
+    email_from: str | None = None,
     latest_news_limit: int = 10,
     attachments: list[str] | None = None,
     report_title: str = "Новостной дайджест",
@@ -446,7 +471,7 @@ def send_news_email(
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = smtp_login
+    msg["From"] = email_from or DEFAULT_EMAIL_FROM
     msg["To"] = ", ".join(recipients)
 
     msg.set_content(
@@ -468,9 +493,13 @@ def send_news_email(
     if attachments:
         attach_files(msg, attachments)
 
-    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-        server.login(smtp_login, smtp_password)
-        server.send_message(msg)
+    _send_via_smtp(
+        msg,
+        smtp_login=smtp_login,
+        smtp_password=smtp_password,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+    )
 
 
 def send_news_email_plain(
@@ -479,8 +508,9 @@ def send_news_email_plain(
     recipients: list[str],
     subject: str,
     final_df: pd.DataFrame,
-    smtp_host: str = "smtp.mail.ru",
-    smtp_port: int = 465,
+    smtp_host: str = DEFAULT_SMTP_HOST,
+    smtp_port: int = DEFAULT_SMTP_PORT,
+    email_from: str | None = None,
     latest_news_limit: int = 10,
     attachments: list[str] | None = None,
 ) -> None:
@@ -498,13 +528,17 @@ def send_news_email_plain(
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = smtp_login
+    msg["From"] = email_from or DEFAULT_EMAIL_FROM
     msg["To"] = ", ".join(recipients)
     msg.set_content(text_content)
 
     if attachments:
         attach_files(msg, attachments)
 
-    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-        server.login(smtp_login, smtp_password)
-        server.send_message(msg)
+    _send_via_smtp(
+        msg,
+        smtp_login=smtp_login,
+        smtp_password=smtp_password,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+    )

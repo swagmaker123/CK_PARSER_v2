@@ -78,20 +78,30 @@ def send_digest_email(
         print("Ошибка: SMTP_LOGIN / SMTP_PASSWORD не заданы в .env")
         raise SystemExit(1)
 
+    smtp_host = os.getenv("SMTP_HOST", "").strip() or None
+    smtp_port_raw = os.getenv("SMTP_PORT", "").strip()
+    email_from = os.getenv("EMAIL_FROM", "").strip() or None
+
     attachment_path = Path(attachment_path)
     news_df = _load_excel_for_send(attachment_path)
     header_path = resolve_email_header_path(header_image_path)
     recipients = _resolve_email_recipients(send_to)
-    send_news_email(
-        smtp_login=smtp_login,
-        smtp_password=smtp_password,
-        recipients=recipients,
-        subject=subject,
-        final_df=news_df,
-        header_image_path=header_path,
-        latest_news_limit=latest_news_limit,
-        attachments=[str(attachment_path)],
-    )
+    send_kwargs = {
+        "smtp_login": smtp_login,
+        "smtp_password": smtp_password,
+        "recipients": recipients,
+        "subject": subject,
+        "final_df": news_df,
+        "header_image_path": header_path,
+        "latest_news_limit": latest_news_limit,
+        "attachments": [str(attachment_path)],
+        "email_from": email_from,
+    }
+    if smtp_host:
+        send_kwargs["smtp_host"] = smtp_host
+    if smtp_port_raw:
+        send_kwargs["smtp_port"] = int(smtp_port_raw)
+    send_news_email(**send_kwargs)
     print(
         f"HTML-письмо отправлено: {', '.join(recipients)}  |  "
         f"вложение: {attachment_path.name}  |  шапка: {header_path.name}"
