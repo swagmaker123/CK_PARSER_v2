@@ -1,4 +1,7 @@
 import logging
+import os
+
+import pandas as pd
 
 from llm.client import call_llm_json
 from llm.ranking_prompts import get_profile, normalize_ck_id
@@ -21,6 +24,31 @@ RANKING_COLUMNS = [
 ]
 
 MAX_RANKING_CANDIDATES = 30
+DEFAULT_CHECKPOINT_EVERY = 10
+
+
+def _checkpoint_every() -> int:
+    raw = os.getenv("ENRICH_CHECKPOINT_EVERY", "").strip()
+    if not raw:
+        return DEFAULT_CHECKPOINT_EVERY
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_CHECKPOINT_EVERY
+
+
+def _row_already_scored(row) -> bool:
+    """Строка уже прошла 1-й проход (есть в checkpoint Excel с _audit_ck_id)."""
+    value = row.get("_audit_ck_id")
+    if value is None:
+        return False
+    try:
+        if pd.isna(value):
+            return False
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return bool(text) and text.lower() not in ("nan", "none")
 
 
 def _ensure_columns(df, columns, default=None):
@@ -78,23 +106,53 @@ def _normalize_ck_filter(ck_filter):
     return normalize_ck_id(value)
 
 
-def score_news_by_ck(final_df, ck_filter=None):
+def score_news_by_ck(
+    final_df,
+    ck_filter=None,
+    checkpoint_every=None,
+    on_checkpoint=None,
+):
     """
     Первый проход: каждая строка оценивается своим промптом ЦК.
 
-    В Excel сохраняются только итоговые пользовательские поля:
-    llm_summary и llm_score. Остальные поля временные и нужны второму проходу.
+    Уже оценённые строки (есть `_audit_ck_id` из checkpoint) пропускаются —
+    можно продолжить после обрыва тем же `--enrich-only` по тому же Excel.
+
+    `on_checkpoint(df)` вызывается каждые `checkpoint_every` новых оценок
+    и в конце скоринга (если был прогресс).
     """
     df = final_df.copy()
     _ensure_columns(df, SCORING_COLUMNS)
     allowed_ck_id = _normalize_ck_filter(ck_filter)
+    every = (
+        _checkpoint_every()
+        if checkpoint_every is None
+        else max(1, int(checkpoint_every))
+    )
 
     total = len(df)
     processed = 0
     skipped = 0
+    resumed = 0
     errors = 0
+    since_checkpoint = 0
+
+    def _maybe_checkpoint(force: bool = False) -> None:
+        nonlocal since_checkpoint
+        if on_checkpoint is None:
+            return
+        if since_checkpoint == 0:
+            return
+        if not force and since_checkpoint < every:
+            return
+        on_checkpoint(df)
+        since_checkpoint = 0
 
     for idx, row in df.iterrows():
+        if _row_already_scored(row):
+            resumed += 1
+            continue
+
         ck_name = row.get("Наименование ЦК", "")
         profile = get_profile(ck_name)
 
@@ -106,6 +164,8 @@ def score_news_by_ck(final_df, ck_filter=None):
             df.at[idx, "_audit_topic"] = "not_relevant"
             df.at[idx, "_audit_reason"] = f"Не найден профиль ранжирования для ЦК: {ck_name}"
             skipped += 1
+            since_checkpoint += 1
+            _maybe_checkpoint()
             continue
 
         if allowed_ck_id is not None and profile.ck_id != allowed_ck_id:
@@ -132,15 +192,17 @@ def score_news_by_ck(final_df, ck_filter=None):
             df.at[idx, "_audit_reason"] = reason
 
             processed += 1
+            since_checkpoint += 1
             logger.info(
                 "  [%s/%s] %s score=%s candidate=%s | %s",
-                processed + skipped,
+                resumed + processed + skipped,
                 total,
                 profile.ck_title,
                 score,
                 is_candidate,
                 str(row.get("Заголовок статьи", ""))[:70],
             )
+            _maybe_checkpoint()
         except Exception as e:
             errors += 1
             logger.error("Ошибка audit scoring строки %s: %s", idx, e)
@@ -149,10 +211,22 @@ def score_news_by_ck(final_df, ck_filter=None):
             df.at[idx, "_audit_is_candidate"] = "0"
             df.at[idx, "_audit_topic"] = "not_relevant"
             df.at[idx, "_audit_reason"] = f"Ошибка LLM scoring: {e}"
+            since_checkpoint += 1
+            _maybe_checkpoint()
 
+    if since_checkpoint:
+        _maybe_checkpoint(force=True)
+
+    if resumed:
+        logger.info(
+            "score_news_by_ck: продолжение с checkpoint, уже оценено строк=%s",
+            resumed,
+        )
     logger.info(
-        "score_news_by_ck завершено: обработано=%s, пропущено=%s, ошибок=%s",
+        "score_news_by_ck завершено: обработано=%s, из checkpoint=%s, "
+        "пропущено=%s, ошибок=%s",
         processed,
+        resumed,
         skipped,
         errors,
     )
@@ -244,8 +318,20 @@ def rank_top_by_ck(final_df, top_n=10, reserve_n=5, ck_filter=None):
     return df
 
 
-def audit_rank_news(final_df, top_n=10, reserve_n=5, ck_filter=None):
-    scored = score_news_by_ck(final_df, ck_filter=ck_filter)
+def audit_rank_news(
+    final_df,
+    top_n=10,
+    reserve_n=5,
+    ck_filter=None,
+    checkpoint_every=None,
+    on_checkpoint=None,
+):
+    scored = score_news_by_ck(
+        final_df,
+        ck_filter=ck_filter,
+        checkpoint_every=checkpoint_every,
+        on_checkpoint=on_checkpoint,
+    )
 
     from dedupe.semantic import dedupe_scored_rows_by_ck
 
@@ -254,10 +340,15 @@ def audit_rank_news(final_df, top_n=10, reserve_n=5, ck_filter=None):
         ck_filter=ck_filter,
         normalize_ck_filter_fn=_normalize_ck_filter,
     )
+    if on_checkpoint is not None:
+        on_checkpoint(scored)
 
-    return rank_top_by_ck(
+    ranked = rank_top_by_ck(
         scored,
         top_n=top_n,
         reserve_n=reserve_n,
         ck_filter=ck_filter,
     )
+    if on_checkpoint is not None:
+        on_checkpoint(ranked)
+    return ranked

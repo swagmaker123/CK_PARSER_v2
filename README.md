@@ -197,7 +197,7 @@ EMAIL_HEADER_IMAGE=assets/my_banner.png
 ```text
 SMTP_LOGIN=...
 SMTP_PASSWORD=...
-EMAIL_FROM=kutuzov.d.mi@sberbank.ru
+EMAIL_FROM=you@example.com
 DEFAULT_RECIPIENTS=user@example.com,other@example.com
 ```
 
@@ -209,6 +209,8 @@ DEFAULT_RECIPIENTS=user@example.com,other@example.com
 1. **Первый проход** — по каждой новости: `llm_summary`, `llm_score`, отбор кандидатов (`llm_score >= 60`, максимум 30 кандидатов на ЦК).
 2. **Semantic dedupe** — удаление дублей среди всех строк каждого ЦК (оставляется max `llm_score`).
 3. **Второй проход** — ранжирование кандидатов, топ-10 + резерв, колонки `top_rank` и `is_top_news`.
+
+Во время 1-го прохода Excel сохраняется каждые 10 строк (checkpoint). Если процесс оборвался — снова запусти `--enrich-only` по тому же файлу: уже оценённые строки пропустятся. Интервал: `ENRICH_CHECKPOINT_EVERY` в `.env`.
 
 Промпты для каждого ЦК: `llm/ranking_prompts/`.
 
