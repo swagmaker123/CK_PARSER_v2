@@ -157,13 +157,14 @@ python main.py --send-only output/news_2026-06-25.xlsx
 | `--send-only` | Только отправить enrich-Excel по email (HTML + вложение) |
 | `--send-to` | Адресаты email (если не задано — `DEFAULT_RECIPIENTS` из `.env`) |
 | `--email-header` | Путь к картинке шапки (по умолчанию `assets/email_header.png`) |
-| `--send-top-n` | Сколько новостей показать в HTML-письме (default: 10) |
+| `--send-top-n` | Сколько новостей показать в письме (default: 10) |
+| `--plain` | Короткое письмо + только Excel во вложении (без HTML-карточек) |
 
 `--export-only` читает уже отфильтрованный кэш. Если менялись правила фильтра — сначала обычный `python main.py` (пересбор из raw-кэша), потом при необходимости `--export-only`.
 
 ### Email
 
-`--send` и `--send-only` отправляют **HTML-письмо** (карточки новостей + Excel во вложении).
+`--send` / `--send-only` по умолчанию шлют **HTML-письмо** (карточки + Excel). С `--plain` — короткое письмо и только Excel во вложении.
 
 Требования:
 

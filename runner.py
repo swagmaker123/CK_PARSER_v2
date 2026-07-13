@@ -10,7 +10,12 @@ from config.sources.registry import get_parser_class, source_ids
 from export.enricher import enrich_excel
 from export.from_cache import load_all_from_cache
 from export.writer import write_unified_excel
-from mailer import require_llm_columns_for_send, resolve_email_header_path, send_news_email
+from mailer import (
+    require_llm_columns_for_send,
+    resolve_email_header_path,
+    send_news_email,
+    send_news_email_plain,
+)
 
 ALL_CK = "all"
 DEFAULT_CK = ALL_CK
@@ -71,6 +76,7 @@ def send_digest_email(
     logger=None,
     header_image_path=None,
     latest_news_limit=10,
+    plain=False,
 ):
     smtp_login = os.getenv("SMTP_LOGIN")
     smtp_password = os.getenv("SMTP_PASSWORD")
@@ -84,7 +90,6 @@ def send_digest_email(
 
     attachment_path = Path(attachment_path)
     news_df = _load_excel_for_send(attachment_path)
-    header_path = resolve_email_header_path(header_image_path)
     recipients = _resolve_email_recipients(send_to)
     send_kwargs = {
         "smtp_login": smtp_login,
@@ -92,7 +97,6 @@ def send_digest_email(
         "recipients": recipients,
         "subject": subject,
         "final_df": news_df,
-        "header_image_path": header_path,
         "latest_news_limit": latest_news_limit,
         "attachments": [str(attachment_path)],
         "email_from": email_from,
@@ -101,11 +105,21 @@ def send_digest_email(
         send_kwargs["smtp_host"] = smtp_host
     if smtp_port_raw:
         send_kwargs["smtp_port"] = int(smtp_port_raw)
-    send_news_email(**send_kwargs)
-    print(
-        f"HTML-письмо отправлено: {', '.join(recipients)}  |  "
-        f"вложение: {attachment_path.name}  |  шапка: {header_path.name}"
-    )
+
+    if plain:
+        send_news_email_plain(**send_kwargs)
+        print(
+            f"Plain-письмо отправлено: {', '.join(recipients)}  |  "
+            f"вложение: {attachment_path.name}"
+        )
+    else:
+        header_path = resolve_email_header_path(header_image_path)
+        send_kwargs["header_image_path"] = header_path
+        send_news_email(**send_kwargs)
+        print(
+            f"HTML-письмо отправлено: {', '.join(recipients)}  |  "
+            f"вложение: {attachment_path.name}  |  шапка: {header_path.name}"
+        )
     if logger is not None:
         logger.info("Письмо отправлено: %s", ", ".join(recipients))
 
@@ -122,6 +136,7 @@ def run_send_only(args):
         send_to=args.send_to,
         header_image_path=args.email_header,
         latest_news_limit=args.send_top_n,
+        plain=args.plain,
     )
     print(f"Завершено: {datetime.now():%Y-%m-%d %H:%M:%S}")
 
@@ -227,6 +242,7 @@ def run_pipeline(args):
             logger=logger,
             header_image_path=args.email_header,
             latest_news_limit=args.send_top_n,
+            plain=args.plain,
         )
 
     print(f"\nЗавершено: {datetime.now():%Y-%m-%d %H:%M:%S}")

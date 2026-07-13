@@ -111,56 +111,6 @@ def _normalize_keywords(value) -> list[str]:
     return [str(value).strip()] if str(value).strip() else []
 
 
-def build_plain_text_report(news_df: pd.DataFrame, total_count: int) -> str:
-    lines = []
-    lines.append("Новостной дайджест")
-    lines.append("")
-    lines.append(f"Всего найдено новостей: {total_count}")
-    lines.append("Топ новостей по llm_score:")
-    lines.append("")
-
-    if news_df is None or news_df.empty:
-        lines.append("Новостей для отображения не найдено.")
-        return "\n".join(lines)
-
-    for idx, (_, row) in enumerate(news_df.iterrows(), start=1):
-        title = row.get("Заголовок статьи", "") or "Без заголовка"
-        url = row.get("Ссылка на источник", "") or "-"
-        source_name = row.get("Источник", "") or "unknown"
-        pub_date = row.get("Дата новости", "")
-        keywords = row.get("Ключевые слова", [])
-        score = row.get("llm_score", "")
-        summary = row.get("llm_summary", "")
-
-        if pd.notna(pub_date):
-            if hasattr(pub_date, "strftime"):
-                pub_date = pub_date.strftime("%d.%m.%Y %H:%M")
-            else:
-                pub_date = str(pub_date)
-        else:
-            pub_date = "-"
-
-        if isinstance(keywords, list):
-            keywords_str = ", ".join(str(x) for x in keywords if str(x).strip())
-        elif keywords is None:
-            keywords_str = "-"
-        else:
-            keywords_str = str(keywords).strip() or "-"
-
-        lines.append(f"{idx}. {title}")
-        lines.append(f"   Источник: {source_name}")
-        lines.append(f"   Дата: {pub_date}")
-        lines.append(f"   llm_score: {score}")
-        lines.append(f"   Кратко: {_safe_str(summary) or '-'}")
-        lines.append(f"   Ключевые слова: {keywords_str}")
-        lines.append(f"   Ссылка: {url}")
-        lines.append("")
-
-    lines.append("Есть вопросы/предложения? Отправьте на почту GAZelenskiy@sberbank.ru")
-
-    return "\n".join(lines)
-
-
 def prepare_send_news(df: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
     require_llm_columns_for_send(df)
 
@@ -514,23 +464,25 @@ def send_news_email_plain(
     latest_news_limit: int = 10,
     attachments: list[str] | None = None,
 ) -> None:
+    """Текстовое письмо без HTML: только короткое тело + Excel во вложении."""
     if not recipients:
         raise ValueError("Список recipients пуст")
 
+    # Тот же gate, что у HTML-рассылки: Excel должен быть после enrich.
     require_llm_columns_for_send(final_df)
-    top_news_df = prepare_send_news(final_df, limit=latest_news_limit)
-    total_count = 0 if final_df is None else len(final_df)
+    _ = latest_news_limit  # для совместимости с send_digest_email
 
-    text_content = build_plain_text_report(
-        news_df=top_news_df,
-        total_count=total_count,
-    )
+    attachment_names = [Path(p).name for p in (attachments or [])]
+    files_line = ", ".join(attachment_names) if attachment_names else "—"
 
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = email_from or DEFAULT_EMAIL_FROM
     msg["To"] = ", ".join(recipients)
-    msg.set_content(text_content)
+    msg.set_content(
+        "Новостной дайджест.\n"
+        f"Во вложении Excel-файл: {files_line}\n"
+    )
 
     if attachments:
         attach_files(msg, attachments)

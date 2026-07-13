@@ -27,7 +27,8 @@ def build_parser():
             "  python main.py --enrich-only --ck payment_systems  # топ по ПС из сегодняшнего Excel\n"
             "  python main.py --ck payment_systems  # только ЦК payment_systems\n"
             "  python main.py --enrich --send           # enrich + HTML-письмо с Excel\n"
-            "  python main.py --send-only output/news_2026-07-01.xlsx  # только отправка enrich-Excel"
+            "  python main.py --send-only output/news_2026-07-01.xlsx  # только отправка enrich-Excel\n"
+            "  python main.py --send-only output/news.xlsx --plain     # только Excel во вложении"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -127,7 +128,12 @@ def build_parser():
         "--send-top-n",
         type=int,
         default=10,
-        help="Сколько новостей показать в HTML-письме (default: 10)",
+        help="Сколько новостей показать в письме (default: 10)",
+    )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="Отправить текстовое письмо вместо HTML (для --send / --send-only)",
     )
     return parser
 
