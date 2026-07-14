@@ -69,131 +69,84 @@ playwright install chromium
 
 ## Запуск
 
-### Что делает `python main.py` без флагов
+Шаги **раздельные** — каждый своей командой.
 
-**Только сбор данных и Excel.** LLM и почта **не запускаются**.
+### 1. Парсинг и фильтры — `python main.py`
 
-| Этап | `python main.py` | Нужен флаг |
-|------|------------------|------------|
-| Парсинг всех источников | ✅ | — |
-| Все ЦК (ПС, ССЭМ, Налоги) | ✅ | — |
-| 30 дней, refresh последних 2 | ✅ | — |
-| Excel в `output/` | ✅ | — |
-| LLM enrich | ❌ | `--enrich` |
-| Email | ❌ | `--send` |
-
-Полный пайплайн «парсинг → enrich → письмо»:
-
-```bash
-python main.py --enrich --send
-```
-
-Порядок в одном прогоне:
-
-1. Парсинг → Excel  
-2. LLM audit ranking (колонки `llm_score`, `llm_summary`, …)  
-3. HTML-письмо + Excel во вложении  
-
-> `--send` **без** `--enrich` в том же запуске завершится ошибкой: в свежем Excel ещё нет `llm_score`.
-
-### Базовый запуск
-
-**Windows:**
+Собирает новости по источникам, режет фильтрами ЦК (ПС / ССЭМ / Налоги), **дописывает** строки в активный Excel-период.
 
 ```powershell
-.\venv\Scripts\activate
 python main.py
 ```
 
-**Linux / macOS:**
-
-```bash
-source venv/bin/activate
-python main.py
-```
-
-По умолчанию: все источники, все ЦК, 30 дней. Последние 2 дня всегда перекачиваются (`--refresh-days`, минимум 2).
-
-### Частые команды
+По умолчанию: все источники, все ЦК, 30 дней, refresh последних 2 дней. LLM и почта **не** запускаются.
 
 ```powershell
-# только парсинг + Excel (по умолчанию)
-python main.py
+# только за 1 день (сегодня / окно в 1 день)
+python main.py --days 1
 
-# парсинг + LLM
-python main.py --enrich
-
-# парсинг + LLM + HTML-письмо (полный цикл)
-python main.py --enrich --send
-
-# только Excel из кэша, без сайтов
+# только из кэша, без сайтов
 python main.py --export-only --days 30
 
 # один источник / один ЦК
 python main.py --source cbr
-python main.py --source rbc --ck payment_systems
 python main.py --ck taxes
-
-# LLM по уже готовому Excel
-python main.py --enrich-only --output output/news_2026-06-25.xlsx
-
-# только отправка enrich-Excel
-python main.py --send-only output/news_2026-06-25.xlsx
 ```
 
-| Аргумент | Описание |
-|---|---|
-| `--source` | Один источник: `banki`, `cbr`, `garant`, `interfax`, `kommersant`, `minfin`, `nalog`, `palata`, `rbc`, `consultant` |
-| `--ck` | ID профиля ЦК (`payment_systems`, `ssem`, `taxes`) или `all` (по умолчанию) |
-| `--days` | Окно парсинга в днях (по умолчанию 30) |
-| `--refresh-days` | Сколько последних дней не брать из кэша, а скачать заново (мин. 2) |
-| `--export-only` | Только собрать Excel из кэша, без загрузки сайтов |
-| `--enrich` | После парсинга запустить LLM audit ranking по готовому Excel |
-| `--enrich-only` | Только LLM audit ranking по Excel (без парсинга) |
-| `--output` | Путь к Excel для `--enrich-only` |
-| `--top-n` | Размер основного топа (по умолчанию 10) |
-| `--reserve-n` | Размер резерва после топа (по умолчанию 5) |
-| `--send` | После прогона отправить **HTML-письмо** (**обязательно вместе с `--enrich` в том же запуске**, либо enrich-Excel для `--send-only`) |
-| `--send-only` | Только отправить enrich-Excel по email (HTML + вложение) |
-| `--send-to` | Адресаты email (если не задано — `DEFAULT_RECIPIENTS` из `.env`) |
-| `--email-header` | Путь к картинке шапки (по умолчанию `assets/email_header.png`) |
-| `--send-top-n` | Сколько новостей показать в письме (default: 10) |
-| `--plain` | Короткое письмо + только Excel во вложении (без HTML-карточек) |
+**Windows (venv):** `.\venv\Scripts\activate` затем `python main.py`  
+**Linux / macOS:** `source venv/bin/activate` затем `python main.py`
 
-`--export-only` читает уже отфильтрованный кэш. Если менялись правила фильтра — сначала обычный `python main.py` (пересбор из raw-кэша), потом при необходимости `--export-only`.
+### 2. Enrich (1-й LLM-проход) — `--enrich` / `--enrich-only`
 
-### Email
+Суммаризация, оценка релевантности и semantic dedupe:
 
-`--send` / `--send-only` по умолчанию шлют **HTML-письмо** (карточки + Excel). С `--plain` — короткое письмо и только Excel во вложении.
-
-Требования:
-
-1. Excel **после LLM enrich** — в файле должна быть колонка `llm_score`
-2. Картинка шапки: **`assets/email_header.png`** (положите файл в папку `assets/`)
-
-Пример:
+- `llm_summary` — краткое резюме
+- `llm_score` — оценка 0–100
+- удаление векторных дублей внутри ЦК
 
 ```powershell
-python main.py --enrich-only --output output/news_2026-06-25.xlsx
-python main.py --send-only output/news_2026-06-25.xlsx
+# парсинг + enrich в одном запуске
+python main.py --enrich
 
-# или за один прогон
-python main.py --enrich --send
+# только enrich по уже собранному активному Excel
+python main.py --enrich-only
 ```
 
-Другой путь к шапке:
+Топ (`top_rank` / `is_top_news`) здесь **не** считается.
 
-```powershell
-python main.py --send-only output/news_2026-06-25.xlsx --email-header assets/my_banner.png
-```
+Checkpoint каждые 10 строк (`ENRICH_CHECKPOINT_EVERY` в `.env`). При обрыве — снова `--enrich-only`.
 
-или в `.env` проекта:
+### 3. Ranking (2-й LLM-проход) — `--rank-only`
+
+Топ **10** основных + **5** резервных (= топ-15 по каждому ЦК). Нужен Excel уже с `llm_score`.
+
+В `.env` для 2-го прохода нужно как минимум:
 
 ```text
-EMAIL_HEADER_IMAGE=assets/my_banner.png
+LLM_MAX_TOKENS=4500
 ```
 
-Для `--send` / `--send-only` в `.env` проекта (см. `.env.example`):
+(меньше — ответ ранжирования часто обрезается.)
+
+```powershell
+python main.py --rank-only --top-n 10 --reserve-n 5
+```
+
+Обычно раз в месяц (cron), по активному периоду. Пишет `top_rank`, `is_top_news`.
+
+### 4. Отправка на почту — `--send-only`
+
+Отдельный шаг. Шлёт письмо с Excel во вложении. После успешной отправки **активного** файла период закрывается → копия в `output/sent/`, следующий парсинг откроет новый файл.
+
+```powershell
+# короткое письмо + только Excel
+python main.py --send-only output/news_2026-07-01_2026-07-31.xlsx --plain
+
+# HTML-письмо (нужна шапка assets/email_header.png)
+python main.py --send-only output/news_2026-07-01_2026-07-31.xlsx
+```
+
+В `.env`:
 
 ```text
 SMTP_LOGIN=...
@@ -202,58 +155,65 @@ EMAIL_FROM=you@example.com
 DEFAULT_RECIPIENTS=user@example.com,other@example.com
 ```
 
-Можно также держать секреты в `~/.openclaw/.env` — он подхватывается как fallback, если переменной нет в `.env` проекта.
-## LLM audit ranking
+Есть также `--send` (отправить после текущего прогона), но рассылку удобнее держать отдельно после `--rank-only`.
 
-После сборки Excel можно прогнать двухэтапную LLM-постобработку:
+| Аргумент | Описание |
+|---|---|
+| `--source` | Один источник: `banki`, `cbr`, `garant`, `interfax`, `kommersant`, `minfin`, `nalog`, `palata`, `rbc`, `consultant` |
+| `--ck` | ID профиля ЦК (`payment_systems`, `ssem`, `taxes`) или `all` |
+| `--days` | Окно парсинга в днях (по умолчанию 30) |
+| `--refresh-days` | Сколько последних дней перекачать заново (мин. 2) |
+| `--export-only` | Excel из кэша, без загрузки сайтов |
+| `--enrich` | После парсинга: суммаризация + score + dedupe |
+| `--enrich-only` | То же по активному периоду (или `--output`), без парсинга |
+| `--rank-only` | 2-й проход: топ-10 + 5 резерв по ЦК |
+| `--output` | Явный Excel для enrich/rank (иначе активный период) |
+| `--top-n` / `--reserve-n` | Размер топа / резерва для `--rank-only` (10 / 5) |
+| `--send-only` | Только отправить указанный Excel |
+| `--send` | Отправить письмо после текущего прогона |
+| `--send-to` | Адресаты (иначе `DEFAULT_RECIPIENTS`) |
+| `--plain` | Короткое письмо + только Excel во вложении |
+| `--email-header` | Картинка шапки для HTML |
 
-1. **Первый проход** — по каждой новости: `llm_summary`, `llm_score`, отбор кандидатов (`llm_score >= 60`, максимум 30 кандидатов на ЦК).
-2. **Semantic dedupe** — удаление дублей среди всех строк каждого ЦК (оставляется max `llm_score`).
-3. **Второй проход** — ранжирование кандидатов, топ-10 + резерв, колонки `top_rank` и `is_top_news`.
+Промпты LLM: `llm/ranking_prompts/`. Подробнее: [LLM_AUDIT_RANKING.md](LLM_AUDIT_RANKING.md).
 
-Во время 1-го прохода Excel сохраняется каждые 10 строк (checkpoint). Если процесс оборвался — снова запусти `--enrich-only` по тому же файлу: уже оценённые строки пропустятся. Интервал: `ENRICH_CHECKPOINT_EVERY` в `.env`.
+### Настройка LLM / модели
 
-Промпты для каждого ЦК: `llm/ranking_prompts/`.
+Переменные (ключ API, `LLM_MODEL`, `LLM_MAX_TOKENS`, embeddings и т.д.) берутся так:
 
-```powershell
-# парсинг + LLM сразу
-python main.py --enrich
+1. **`.env` в корне проекта** — основной источник  
+2. если переменной там нет → **`~/.openclaw/.env`** (fallback)
 
-# только LLM по Excel за сегодня
-python main.py --enrich-only
-
-# LLM по конкретному файлу и ЦК
-python main.py --enrich-only --output output/news_2026-06-25.xlsx --ck payment_systems
-```
-
-Подробнее: [LLM_AUDIT_RANKING.md](LLM_AUDIT_RANKING.md).
-
-### Настройка LLM
-
-`main.py` загружает переменные из `.env` в корне проекта (приоритет), затем из `~/.openclaw/.env` (fallback).
-
-Минимум:
+То, что уже задано в проектном `.env`, OpenClaw не перебивает.
 
 ```text
 FOUNDATION_MODELS_API_KEY=...
-```
-
-Опционально:
-
-```text
 LLM_MODEL=ai-sage/GigaChat3-10B-A1.8B
 LLM_TEMPERATURE=0.2
-LLM_MAX_TOKENS=4096
+LLM_MAX_TOKENS=4500
 LLM_TEXT_TRUNCATE=8000
 ```
 
-## Результат
+Для `--rank-only` минимум `LLM_MAX_TOKENS=4500`.
 
-Один Excel на прогон:
+## Результат (Excel)
+
+Один **активный** файл на период (не Excel на каждый день):
 
 ```text
-output/news_YYYY-MM-DD.xlsx
+output/news_YYYY-MM-DD_YYYY-MM-DD.xlsx   # FROM → TO (начало периода → последняя новость)
+output/.active_workbook                  # какой файл сейчас активный
 ```
+
+`python main.py` / `--export-only` **дописывает** новые строки (дедуп по ссылке + ЦК). Уже обогащённые строки не затираются.
+
+После `--send-only` / `--send` по активному файлу:
+
+```text
+output/sent/news_YYYY-MM-DD_YYYY-MM-DD.xlsx
+```
+
+Активный файл из `output/` удаляется, маркер сбрасывается — следующий парсинг открывает новый период.
 
 Базовые колонки:
 
@@ -265,10 +225,13 @@ output/news_YYYY-MM-DD.xlsx
 - `Наименование ЦК` — ПС / ССЭМ / Налоги
 - `Ключевые слова` — сработавшие правила фильтра
 
-После `--enrich` / `--enrich-only` добавляются:
+После `--enrich` / `--enrich-only`:
 
 - `llm_summary` — выжимка новости для ленты и рассылки
 - `llm_score` — оценка релевантности для ЦК (0–100)
+
+После `--rank-only`:
+
 - `top_rank` — место в ранжировании по ЦК (1–15)
 - `is_top_news` — входит ли новость в топ-10 по своему ЦК
 

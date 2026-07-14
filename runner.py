@@ -7,8 +7,9 @@ import pandas as pd
 from common.logging import RunStats, log_run_summary, setup_run_logger
 from config.ck import discover_ck_profiles
 from config.sources.registry import get_parser_class, source_ids
-from export.enricher import enrich_excel
+from export.enricher import enrich_excel, rank_excel
 from export.from_cache import load_all_from_cache
+from export.workbook import archive_after_send, get_active_path, require_active_path
 from export.writer import write_unified_excel
 from mailer import (
     require_llm_columns_for_send,
@@ -69,6 +70,21 @@ def _load_excel_for_send(excel_path):
     return df
 
 
+def _resolve_workbook_path(output_arg=None):
+    """Явный --output или активный Excel-период."""
+    if output_arg:
+        path = Path(output_arg)
+        if not path.exists():
+            print(f"Ошибка: файл не найден — {path}")
+            raise SystemExit(1)
+        return path
+    try:
+        return require_active_path()
+    except FileNotFoundError as e:
+        print(f"Ошибка: {e}")
+        raise SystemExit(1)
+
+
 def send_digest_email(
     attachment_path,
     subject,
@@ -77,6 +93,7 @@ def send_digest_email(
     header_image_path=None,
     latest_news_limit=10,
     plain=False,
+    archive=True,
 ):
     smtp_login = os.getenv("SMTP_LOGIN")
     smtp_password = os.getenv("SMTP_PASSWORD")
@@ -123,6 +140,15 @@ def send_digest_email(
     if logger is not None:
         logger.info("Письмо отправлено: %s", ", ".join(recipients))
 
+    if archive:
+        active = get_active_path()
+        if active is not None and active.resolve() == attachment_path.resolve():
+            archived = archive_after_send(attachment_path)
+            msg = f"Период закрыт: архив {archived}"
+            print(msg)
+            if logger is not None:
+                logger.info(msg)
+
 
 def run_send_only(args):
     target = Path(args.send_only)
@@ -142,22 +168,28 @@ def run_send_only(args):
 
 
 def run_enrich_only(args):
-    from common.paths import PROJECT_ROOT
-
     logger, log_file = setup_run_logger()
+    target_path = _resolve_workbook_path(args.output)
 
-    if args.output:
-        target_path = Path(args.output)
-    else:
-        output_dir = Path(PROJECT_ROOT) / "output"
-        today_name = f"news_{datetime.now():%Y-%m-%d}.xlsx"
-        target_path = output_dir / today_name
-        if not target_path.exists():
-            print(f"Ошибка: в директории output/ не найден файл {today_name}")
-            raise SystemExit(1)
-
-    print(f"LLM audit ranking файла: {target_path.name}")
+    print(f"LLM enrich (score + dedupe): {target_path.name}")
+    print(f"Лог: {log_file}")
     enrich_excel(
+        target_path,
+        ck_filter=args.ck,
+    )
+    print(f"Завершено: {datetime.now():%Y-%m-%d %H:%M:%S}")
+
+
+def run_rank_only(args):
+    logger, log_file = setup_run_logger()
+    target_path = _resolve_workbook_path(args.output)
+
+    print(
+        f"LLM top ranking: {target_path.name} "
+        f"(top_n={args.top_n}, reserve_n={args.reserve_n})"
+    )
+    print(f"Лог: {log_file}")
+    rank_excel(
         target_path,
         top_n=args.top_n,
         reserve_n=args.reserve_n,
@@ -221,14 +253,12 @@ def run_pipeline(args):
     logger.info("Итоговый Excel: %s", unified_path)
 
     if args.enrich:
-        print("\n========== LLM AUDIT RANKING ==========")
+        print("\n========== LLM ENRICH (score + dedupe) ==========")
         enrich_excel(
             unified_path,
-            top_n=args.top_n,
-            reserve_n=args.reserve_n,
             ck_filter=args.ck,
         )
-        print(f"LLM audit ranking завершен: {unified_path}")
+        print(f"LLM enrich завершен: {unified_path}")
 
     if not args.export_only:
         logger.info("========== ИТОГ ПРОГОНА ==========")
@@ -237,7 +267,7 @@ def run_pipeline(args):
     if args.send:
         send_digest_email(
             unified_path,
-            subject=f"Дайджест новостей — {run_date}",
+            subject=f"Дайджест новостей — {Path(unified_path).stem}",
             send_to=args.send_to,
             logger=logger,
             header_image_path=args.email_header,

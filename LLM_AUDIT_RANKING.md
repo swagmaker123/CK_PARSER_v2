@@ -2,11 +2,18 @@
 
 Этот режим делает LLM-постобработку готового Excel-файла с новостями.
 
-Цель: Отобрать топ новостей по каждому ЦК с точки зрения аудиторской релевантности.
+Цель: оценить новости для ЦК и (отдельно) отобрать топ.
+
+## Как запускать
+
+- **Каждый день** — score + dedupe:
+  `python main.py --enrich` или `--enrich-only --output ...`
+- **По расписанию (например раз в месяц)** — только 2-й проход:
+  `python main.py --rank-only --output output/news_YYYY-MM-DD.xlsx --top-n 10 --reserve-n 5`
 
 ## Что делает
 
-LLM audit ranking работает в три этапа:
+Пайплайн состоит из трёх этапов (1–2 ежедневно, 3 — отдельно):
 
 1. Первый проход оценивает каждую новость отдельно.
    - Формирует нормальное краткое резюме новости для рассылки.
@@ -157,13 +164,13 @@ python main.py --enrich-only --output output/news_2026-06-25.xlsx --ck payment_s
 Пример:
 
 ```powershell
-python main.py --enrich-only --ck payment_systems --top-n 10 --reserve-n 5
+python main.py --rank-only --ck payment_systems --top-n 10 --reserve-n 5
 ```
 
 Если нужен только топ-10 без резерва:
 
 ```powershell
-python main.py --enrich-only --ck payment_systems --reserve-n 0
+python main.py --rank-only --ck payment_systems --reserve-n 0
 ```
 
 ## Что нужно для работы

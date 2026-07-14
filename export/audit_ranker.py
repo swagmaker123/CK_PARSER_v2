@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from llm.audit_ranker import _checkpoint_every, audit_rank_news
+from llm.audit_ranker import (
+    _checkpoint_every,
+    prepare_df_for_ranking,
+    rank_top_by_ck,
+    score_and_dedupe_news,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,21 +43,20 @@ def _write_excel_atomic(excel_path: Path, sheets: dict, *, drop_internal: bool) 
                 pass
 
 
-def audit_rank_excel(excel_path, top_n=10, reserve_n=5, ck_filter=None):
+def audit_rank_excel(excel_path, ck_filter=None):
     """
-    Читает готовый Excel, выполняет двухпроходное LLM-ранжирование по каждому ЦК
-    и перезаписывает файл.
+    Ежедневный enrich: LLM scoring + semantic dedupe.
 
-    Во время 1-го прохода периодически сохраняет checkpoint (с `_audit_*`),
-    чтобы можно было продолжить после обрыва тем же `--enrich-only`.
-    В финальном файле служебные `_audit_*` колонки удаляются.
+    Второй проход (top ranking) — отдельно через rank_top_excel / --rank-only.
+    Во время scoring сохраняет checkpoint (с `_audit_*`).
+    В финальном файле служебные `_audit_*` удаляются; остаются llm_score / llm_summary.
     """
     excel_path = Path(excel_path)
 
     if not excel_path.exists():
         raise FileNotFoundError(f"Файл не найден: {excel_path}")
 
-    logger.info("Audit ranking: %s", excel_path.name)
+    logger.info("LLM enrich (score + dedupe): %s", excel_path.name)
     every = _checkpoint_every()
     logger.info(
         "Checkpoint каждые %s строк (ENRICH_CHECKPOINT_EVERY), resume по _audit_ck_id",
@@ -60,20 +64,20 @@ def audit_rank_excel(excel_path, top_n=10, reserve_n=5, ck_filter=None):
     )
 
     sheets = pd.read_excel(excel_path, sheet_name=None)
-    ranked = {}
+    enriched = {}
 
     for sheet_name, df in sheets.items():
         logger.info("  Лист «%s»: %d строк", sheet_name, len(df))
 
         if df.empty:
-            ranked[sheet_name] = df
+            enriched[sheet_name] = df
             continue
 
         def on_checkpoint(current_df, *, _sheet=sheet_name):
             snapshot = {}
             for name, original in sheets.items():
-                if name in ranked:
-                    snapshot[name] = ranked[name]
+                if name in enriched:
+                    snapshot[name] = enriched[name]
                 elif name == _sheet:
                     snapshot[name] = current_df
                 else:
@@ -89,13 +93,55 @@ def audit_rank_excel(excel_path, top_n=10, reserve_n=5, ck_filter=None):
             logger.info(msg)
             print(msg)
 
-        ranked_df = audit_rank_news(
+        enriched_df = score_and_dedupe_news(
             df,
-            top_n=top_n,
-            reserve_n=reserve_n,
             ck_filter=ck_filter,
             checkpoint_every=every,
             on_checkpoint=on_checkpoint,
+        )
+        enriched[sheet_name] = enriched_df
+        logger.info("  → score+dedupe готово: %d строк", len(enriched_df))
+
+    _write_excel_atomic(excel_path, enriched, drop_internal=True)
+    logger.info("LLM enrich завершен: %s", excel_path)
+    return excel_path
+
+
+def rank_top_excel(excel_path, top_n=10, reserve_n=5, ck_filter=None):
+    """
+    Второй проход: top_n + reserve_n по каждому ЦК.
+
+    Ожидает Excel после --enrich (колонка llm_score).
+    Пишет top_rank / is_top_news.
+    """
+    excel_path = Path(excel_path)
+
+    if not excel_path.exists():
+        raise FileNotFoundError(f"Файл не найден: {excel_path}")
+
+    logger.info(
+        "LLM top ranking: %s (top_n=%s, reserve_n=%s)",
+        excel_path.name,
+        top_n,
+        reserve_n,
+    )
+
+    sheets = pd.read_excel(excel_path, sheet_name=None)
+    ranked = {}
+
+    for sheet_name, df in sheets.items():
+        logger.info("  Лист «%s»: %d строк", sheet_name, len(df))
+
+        if df.empty:
+            ranked[sheet_name] = df
+            continue
+
+        prepared = prepare_df_for_ranking(df, ck_filter=ck_filter)
+        ranked_df = rank_top_by_ck(
+            prepared,
+            top_n=top_n,
+            reserve_n=reserve_n,
+            ck_filter=ck_filter,
         )
         ranked[sheet_name] = ranked_df
 
@@ -105,7 +151,8 @@ def audit_rank_excel(excel_path, top_n=10, reserve_n=5, ck_filter=None):
             else 0
         )
         logger.info("  → %d top-новостей помечено", top_count)
+        print(f"Лист «{sheet_name}»: top-новостей = {top_count}")
 
     _write_excel_atomic(excel_path, ranked, drop_internal=True)
-    logger.info("Audit ranking завершен: %s", excel_path)
+    logger.info("LLM top ranking завершен: %s", excel_path)
     return excel_path

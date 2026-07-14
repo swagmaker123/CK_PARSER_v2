@@ -1,10 +1,8 @@
-import os
 import re
 from datetime import date, datetime
 
 import pandas as pd
 
-from common.paths import PROJECT_ROOT
 from config.ck import get_ck_export_title
 from config.sources.registry import get_source_label
 
@@ -121,21 +119,58 @@ def _project_row(item, ck_id, source_id):
 
 
 def write_unified_excel(combined_by_ck, run_date=None):
+    """
+    Дописывает новости в активный Excel-период (append по URL+ЦК).
+
+    Имя файла: news_FROM_TO.xlsx. После send период закрывается
+    (см. export.workbook.archive_after_send).
+    """
+    from export.workbook import (
+        get_active_path,
+        merge_workbooks,
+        rename_active_workbook,
+        resolve_period_bounds,
+        set_active_path,
+        target_path_for_bounds,
+        write_df_atomic,
+        ensure_output_dirs,
+    )
+
     if run_date is None:
         run_date = datetime.now().strftime("%Y-%m-%d")
 
-    output_dir = os.path.join(PROJECT_ROOT, "output")
-    os.makedirs(output_dir, exist_ok=True)
+    ensure_output_dirs()
 
-    path = os.path.join(output_dir, f"news_{run_date}.xlsx")
     rows = []
-
     for ck_id, source_data in combined_by_ck.items():
         for source_id, articles in source_data.items():
             for item in articles or []:
                 rows.append(_project_row(item, ck_id, source_id))
 
-    df = pd.DataFrame(rows, columns=UNIFIED_COLUMNS)
-    df.to_excel(path, index=False, engine="openpyxl")
+    new_df = pd.DataFrame(rows, columns=UNIFIED_COLUMNS)
 
-    return path
+    active = get_active_path()
+    existing_df = None
+    if active is not None and active.is_file():
+        try:
+            existing_df = pd.read_excel(active)
+        except Exception:
+            existing_df = None
+
+    merged = merge_workbooks(existing_df, new_df)
+    date_from, date_to = resolve_period_bounds(active, merged, run_date)
+    target = target_path_for_bounds(date_from, date_to)
+
+    if active is None:
+        write_df_atomic(target, merged)
+        set_active_path(target)
+        return str(target)
+
+    if active.resolve() == target.resolve():
+        write_df_atomic(target, merged)
+        set_active_path(target)
+        return str(target)
+
+    # Сначала пишем во временное имя рядом, потом atomic rename периода
+    write_df_atomic(active, merged)
+    return str(rename_active_workbook(active, target))

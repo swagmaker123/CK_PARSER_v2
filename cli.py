@@ -9,6 +9,7 @@ from runner import (
     MIN_REFRESH_DAYS,
     run_enrich_only,
     run_pipeline,
+    run_rank_only,
     run_send_only,
 )
 
@@ -24,11 +25,11 @@ def build_parser():
             "  python main.py --source consultant   # Consultant\n"
             "  python main.py --days 30             # все источники за 30 дней\n"
             "  python main.py --export-only         # Excel из кэша, без загрузки\n"
-            "  python main.py --enrich-only --ck payment_systems  # топ по ПС из сегодняшнего Excel\n"
-            "  python main.py --ck payment_systems  # только ЦК payment_systems\n"
-            "  python main.py --enrich --send           # enrich + HTML-письмо с Excel\n"
-            "  python main.py --send-only output/news_2026-07-01.xlsx  # только отправка enrich-Excel\n"
-            "  python main.py --send-only output/news.xlsx --plain     # только Excel во вложении"
+            "  python main.py --enrich              # парсинг + LLM score/dedupe\n"
+            "  python main.py --enrich-only         # enrich активного периода\n"
+            "  python main.py --rank-only           # 2-й проход по активному Excel (cron)\n"
+            "  python main.py --enrich --send --plain\n"
+            "  python main.py --send-only output/sent/news_2026-07-01_2026-07-31.xlsx --plain"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -72,30 +73,38 @@ def build_parser():
     parser.add_argument(
         "--enrich",
         action="store_true",
-        help="Запустить LLM audit ranking после парсинга и записи Excel",
+        help="После парсинга: LLM score + semantic dedupe (без top ranking)",
     )
     parser.add_argument(
         "--enrich-only",
         action="store_true",
-        help="Только LLM audit ranking (без парсинга): берёт output/news_сегодня.xlsx",
+        help="Только LLM score + dedupe: активный Excel-период или --output",
+    )
+    parser.add_argument(
+        "--rank-only",
+        action="store_true",
+        help=(
+            "Только 2-й LLM-проход по активному периоду (или --output); "
+            "удобно для cron раз в месяц"
+        ),
     )
     parser.add_argument(
         "--output",
         type=str,
         default=None,
-        help="Путь к конкретному Excel-файлу для --enrich-only",
+        help="Путь к Excel для --enrich-only / --rank-only (по умолчанию — активный период)",
     )
     parser.add_argument(
         "--top-n",
         type=int,
         default=10,
-        help="Количество топ-новостей для пометки (default: 10)",
+        help="Количество топ-новостей для --rank-only (default: 10)",
     )
     parser.add_argument(
         "--reserve-n",
         type=int,
         default=5,
-        help="Количество резервных новостей для audit ranking (default: 5)",
+        help="Количество резервных новостей для --rank-only (default: 5)",
     )
     parser.add_argument(
         "--send",
@@ -143,6 +152,10 @@ def main(argv=None):
 
     if args.send_only:
         run_send_only(args)
+        return
+
+    if args.rank_only:
+        run_rank_only(args)
         return
 
     if args.enrich_only:

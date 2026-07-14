@@ -18,9 +18,11 @@ logs/
 
 # cache/ is tracked on purpose (parsed/filtered JSON for reproducibility)
 
-# output/: keep Excel exports, ignore other runtime files
+# output/: Excel периода + архив sent/; маркер .active_workbook не коммитим
 output/*
 !output/*.xlsx
+!output/sent/
+!output/sent/*.xlsx
 
 # Excel / local dumps outside output/
 *.xlsx

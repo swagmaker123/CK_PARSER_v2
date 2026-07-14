@@ -335,14 +335,63 @@ def rank_top_by_ck(final_df, top_n=10, reserve_n=5, ck_filter=None):
     return df
 
 
-def audit_rank_news(
+def prepare_df_for_ranking(final_df, ck_filter=None):
+    """
+    Готовит Excel после --enrich к второму проходу.
+
+    Восстанавливает `_audit_ck_id` / `_audit_is_candidate` из
+    «Наименование ЦК» и `llm_score` (кандидат: score >= 60), если
+    служебные колонки уже выкинуты из финального файла.
+    """
+    if "llm_score" not in final_df.columns:
+        raise ValueError(
+            "В Excel нет колонки llm_score — сначала выполните --enrich / --enrich-only"
+        )
+
+    df = final_df.copy()
+    _ensure_columns(df, SCORING_COLUMNS)
+    _ensure_columns(df, RANKING_COLUMNS)
+
+    for idx, row in df.iterrows():
+        ck_name = row.get("Наименование ЦК", "")
+        profile = get_profile(ck_name)
+        score = _clean_score(row.get("llm_score", 0))
+
+        if profile is None:
+            df.at[idx, "_audit_ck_id"] = normalize_ck_id(ck_name)
+            df.at[idx, "_audit_is_candidate"] = "0"
+            continue
+
+        df.at[idx, "_audit_ck_id"] = profile.ck_id
+
+        existing = row.get("_audit_is_candidate")
+        has_existing = False
+        if existing is not None:
+            try:
+                has_existing = not pd.isna(existing) and str(existing).strip() not in (
+                    "",
+                    "nan",
+                    "none",
+                    "None",
+                )
+            except (TypeError, ValueError):
+                has_existing = bool(str(existing).strip())
+
+        if has_existing:
+            df.at[idx, "_audit_is_candidate"] = "1" if _as_bool(existing) else "0"
+        else:
+            df.at[idx, "_audit_is_candidate"] = "1" if score >= 60 else "0"
+
+    return df
+
+
+def score_and_dedupe_news(
     final_df,
-    top_n=10,
-    reserve_n=5,
     ck_filter=None,
     checkpoint_every=None,
     on_checkpoint=None,
 ):
+    """Первый проход + semantic dedupe (ежедневный --enrich). Без top ranking."""
     scored = score_news_by_ck(
         final_df,
         ck_filter=ck_filter,
@@ -357,9 +406,30 @@ def audit_rank_news(
         ck_filter=ck_filter,
         normalize_ck_filter_fn=_normalize_ck_filter,
     )
+    _ensure_columns(scored, RANKING_COLUMNS)
+    scored["top_rank"] = ""
+    scored["is_top_news"] = "0"
+
     if on_checkpoint is not None:
         on_checkpoint(scored)
+    return scored
 
+
+def audit_rank_news(
+    final_df,
+    top_n=10,
+    reserve_n=5,
+    ck_filter=None,
+    checkpoint_every=None,
+    on_checkpoint=None,
+):
+    """Полный пайплайн: score + dedupe + ranking (для совместимости)."""
+    scored = score_and_dedupe_news(
+        final_df,
+        ck_filter=ck_filter,
+        checkpoint_every=checkpoint_every,
+        on_checkpoint=on_checkpoint,
+    )
     ranked = rank_top_by_ck(
         scored,
         top_n=top_n,
