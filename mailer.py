@@ -452,6 +452,51 @@ def send_news_email(
     )
 
 
+def _iso_date_to_ru(iso_date: str) -> str:
+    """2026-06-01 → 01.06.2026"""
+    parts = str(iso_date).strip().split("-")
+    if len(parts) != 3:
+        return str(iso_date)
+    year, month, day = parts
+    return f"{day}.{month}.{year}"
+
+
+def build_plain_period_body(
+    attachments: list[str] | None = None,
+    final_df: pd.DataFrame | None = None,
+) -> str:
+    """Короткое тело plain-письма с периодом (без списка новостей — фильтры КИБ)."""
+    date_from = None
+    date_to = None
+
+    from export.workbook import parse_news_date, parse_range_from_name
+
+    for path in attachments or []:
+        parsed = parse_range_from_name(path)
+        if parsed:
+            date_from, date_to = parsed
+            break
+
+    if date_from is None and final_df is not None and not final_df.empty:
+        if "Дата новости" in final_df.columns:
+            dates = []
+            for value in final_df["Дата новости"]:
+                parsed = parse_news_date(value)
+                if parsed is not None:
+                    dates.append(parsed)
+            if dates:
+                date_from = min(dates).strftime("%Y-%m-%d")
+                date_to = max(dates).strftime("%Y-%m-%d")
+
+    if date_from and date_to:
+        return (
+            "Результат отработки парсера "
+            f"с {_iso_date_to_ru(date_from)} по {_iso_date_to_ru(date_to)}.\n"
+        )
+
+    return "Результат отработки парсера.\n"
+
+
 def send_news_email_plain(
     smtp_login: str,
     smtp_password: str,
@@ -464,7 +509,7 @@ def send_news_email_plain(
     latest_news_limit: int = 10,
     attachments: list[str] | None = None,
 ) -> None:
-    """Текстовое письмо без HTML: только короткое тело + Excel во вложении."""
+    """Текстовое письмо без HTML: короткий текст с периодом + Excel во вложении."""
     if not recipients:
         raise ValueError("Список recipients пуст")
 
@@ -472,17 +517,11 @@ def send_news_email_plain(
     require_llm_columns_for_send(final_df)
     _ = latest_news_limit  # для совместимости с send_digest_email
 
-    attachment_names = [Path(p).name for p in (attachments or [])]
-    files_line = ", ".join(attachment_names) if attachment_names else "—"
-
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = email_from or DEFAULT_EMAIL_FROM
     msg["To"] = ", ".join(recipients)
-    msg.set_content(
-        "Новостной дайджест.\n"
-        f"Во вложении Excel-файл: {files_line}\n"
-    )
+    msg.set_content(build_plain_period_body(attachments, final_df))
 
     if attachments:
         attach_files(msg, attachments)
