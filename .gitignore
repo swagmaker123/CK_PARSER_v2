@@ -39,6 +39,9 @@ output/*
 !.env.example
 *.pem
 
+# Local scripts (not part of upstream)
+scripts/news_finder.py
+
 # IDE / OS
 .idea/
 .vscode/
@@ -48,3 +51,4 @@ Desktop.ini
 
 # Playwright browsers
 .ms-playwright/
+start_enrich_test.py
